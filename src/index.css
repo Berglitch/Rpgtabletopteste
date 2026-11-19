@@ -189,7 +189,7 @@ body {
   background-color: #1a2818;
   background-image:
     linear-gradient(rgba(16, 10, 5, 0.12), rgba(16, 10, 5, 0.22)),
-    url("/src/assets/images/map-battleground.jpg");
+    url("./assets/images/map-battleground.jpg");
   background-size: 100% 100%, cover;
   background-position: center, center;
   background-repeat: no-repeat, no-repeat;

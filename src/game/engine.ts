@@ -21,9 +21,28 @@ import type {
   Weapon,
 } from './types';
 
-export const HERO_PORTRAIT_URL = '/src/assets/images/hero_warrior_valerius_1795088249220.jpg';
-export const GOBLIN_PORTRAIT_URL = '/src/assets/images/goblin-art.png';
-export const BATTLEGROUND_MAP_URL = '/src/assets/images/map-battleground.jpg';
+import goblinArtImg from '../assets/images/goblin-art.png';
+import heroWarriorValeriusImg from '../assets/images/hero_warrior_valerius_1795088249220.jpg';
+import mapBattlegroundImg from '../assets/images/map-battleground.jpg';
+import portraitDryadMageImg from '../assets/images/portrait_dryad_mage_1795095501974.jpg';
+import portraitDryadMageMImg from '../assets/images/portrait_dryad_mage_m_1795097610314.jpg';
+import portraitDryadWardenImg from '../assets/images/portrait_dryad_warden_1795093740540.jpg';
+import portraitDryadWarriorMImg from '../assets/images/portrait_dryad_warrior_m_1795097606457.jpg';
+import portraitDwarfIroncladImg from '../assets/images/portrait_dwarf_ironclad_1795093741247.jpg';
+import portraitDwarfMageImg from '../assets/images/portrait_dwarf_mage_1795095500639.jpg';
+import portraitDwarfWomanMageImg from '../assets/images/portrait_dwarf_woman_mage_1795097640311.jpg';
+import portraitDwarfWomanWarriorImg from '../assets/images/portrait_dwarf_woman_warrior_1795097641470.jpg';
+import portraitHighElfMageImg from '../assets/images/portrait_high_elf_mage_1795095501429.jpg';
+import portraitHighElfMageMImg from '../assets/images/portrait_high_elf_mage_m_1795097606699.jpg';
+import portraitHighElfWarriorImg from '../assets/images/portrait_high_elf_warrior_1795093741297.jpg';
+import portraitHighElfWarriorFImg from '../assets/images/portrait_high_elf_warrior_f_1795097606341.jpg';
+import portraitHumanMageImg from '../assets/images/portrait_human_mage_1795095501255.jpg';
+import portraitHumanMageFImg from '../assets/images/portrait_human_mage_f_1795097606578.jpg';
+import portraitHumanShieldmaidenImg from '../assets/images/portrait_human_shieldmaiden_1795093741610.jpg';
+
+export const HERO_PORTRAIT_URL = heroWarriorValeriusImg;
+export const GOBLIN_PORTRAIT_URL = goblinArtImg;
+export const BATTLEGROUND_MAP_URL = mapBattlegroundImg;
 
 export const DEFAULT_WEAPON: Weapon = {
   id: 'iron_longsword',
@@ -52,7 +71,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'human',
     suggestedClassId: 'warrior',
     gender: 'male',
-    imageUrl: '/src/assets/images/hero_warrior_valerius_1795088249220.jpg',
+    imageUrl: heroWarriorValeriusImg,
   },
   {
     id: 'human_shieldmaiden',
@@ -61,7 +80,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'human',
     suggestedClassId: 'warrior',
     gender: 'female',
-    imageUrl: '/src/assets/images/portrait_human_shieldmaiden_1795093741610.jpg',
+    imageUrl: portraitHumanShieldmaidenImg,
   },
   {
     id: 'human_mage',
@@ -70,7 +89,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'human',
     suggestedClassId: 'mage',
     gender: 'male',
-    imageUrl: '/src/assets/images/portrait_human_mage_1795095501255.jpg',
+    imageUrl: portraitHumanMageImg,
   },
   {
     id: 'human_mage_f',
@@ -79,7 +98,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'human',
     suggestedClassId: 'mage',
     gender: 'female',
-    imageUrl: '/src/assets/images/portrait_human_mage_f_1795097606578.jpg',
+    imageUrl: portraitHumanMageFImg,
   },
 
   // Alto Elfo
@@ -90,7 +109,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'high_elf',
     suggestedClassId: 'warrior',
     gender: 'male',
-    imageUrl: '/src/assets/images/portrait_high_elf_warrior_1795093741297.jpg',
+    imageUrl: portraitHighElfWarriorImg,
   },
   {
     id: 'high_elf_warrior_f',
@@ -99,7 +118,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'high_elf',
     suggestedClassId: 'warrior',
     gender: 'female',
-    imageUrl: '/src/assets/images/portrait_high_elf_warrior_f_1795097606341.jpg',
+    imageUrl: portraitHighElfWarriorFImg,
   },
   {
     id: 'high_elf_mage_m',
@@ -108,7 +127,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'high_elf',
     suggestedClassId: 'mage',
     gender: 'male',
-    imageUrl: '/src/assets/images/portrait_high_elf_mage_m_1795097606699.jpg',
+    imageUrl: portraitHighElfMageMImg,
   },
   {
     id: 'high_elf_mage',
@@ -117,7 +136,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'high_elf',
     suggestedClassId: 'mage',
     gender: 'female',
-    imageUrl: '/src/assets/images/portrait_high_elf_mage_1795095501429.jpg',
+    imageUrl: portraitHighElfMageImg,
   },
 
   // Anão
@@ -128,7 +147,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'dwarf',
     suggestedClassId: 'warrior',
     gender: 'male',
-    imageUrl: '/src/assets/images/portrait_dwarf_ironclad_1795093741247.jpg',
+    imageUrl: portraitDwarfIroncladImg,
   },
   {
     id: 'dwarf_warrior_f',
@@ -137,7 +156,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'dwarf',
     suggestedClassId: 'warrior',
     gender: 'female',
-    imageUrl: '/src/assets/images/portrait_dwarf_woman_warrior_1795097641470.jpg',
+    imageUrl: portraitDwarfWomanWarriorImg,
   },
   {
     id: 'dwarf_mage',
@@ -146,7 +165,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'dwarf',
     suggestedClassId: 'mage',
     gender: 'male',
-    imageUrl: '/src/assets/images/portrait_dwarf_mage_1795095500639.jpg',
+    imageUrl: portraitDwarfMageImg,
   },
   {
     id: 'dwarf_mage_f',
@@ -155,7 +174,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'dwarf',
     suggestedClassId: 'mage',
     gender: 'female',
-    imageUrl: '/src/assets/images/portrait_dwarf_woman_mage_1795097640311.jpg',
+    imageUrl: portraitDwarfWomanMageImg,
   },
 
   // Dríade
@@ -166,7 +185,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'dryad',
     suggestedClassId: 'warrior',
     gender: 'male',
-    imageUrl: '/src/assets/images/portrait_dryad_warrior_m_1795097606457.jpg',
+    imageUrl: portraitDryadWarriorMImg,
   },
   {
     id: 'dryad_warden',
@@ -175,7 +194,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'dryad',
     suggestedClassId: 'warrior',
     gender: 'female',
-    imageUrl: '/src/assets/images/portrait_dryad_warden_1795093740540.jpg',
+    imageUrl: portraitDryadWardenImg,
   },
   {
     id: 'dryad_mage_m',
@@ -184,7 +203,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'dryad',
     suggestedClassId: 'mage',
     gender: 'male',
-    imageUrl: '/src/assets/images/portrait_dryad_mage_m_1795097610314.jpg',
+    imageUrl: portraitDryadMageMImg,
   },
   {
     id: 'dryad_mage',
@@ -193,7 +212,7 @@ export const APPEARANCE_OPTIONS: AppearanceOption[] = [
     suggestedRaceId: 'dryad',
     suggestedClassId: 'mage',
     gender: 'female',
-    imageUrl: '/src/assets/images/portrait_dryad_mage_1795095501974.jpg',
+    imageUrl: portraitDryadMageImg,
   },
 ];
 
