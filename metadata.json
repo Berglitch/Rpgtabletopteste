@@ -1,0 +1,6 @@
+{
+  "name": "Crônicas de Sangue & Glória",
+  "description": "RPG tático de navegador com ficha d20, combate em grid 16x10 estilo VTT, habilidades de reação e trilha sonora procedural.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
