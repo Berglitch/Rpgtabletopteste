@@ -21,24 +21,89 @@ import type {
   Weapon,
 } from './types';
 
-import goblinArtImg from '../assets/images/goblin-art.png';
-import heroWarriorValeriusImg from '../assets/images/hero_warrior_valerius_1795088249220.jpg';
-import mapBattlegroundImg from '../assets/images/map-battleground.jpg';
-import portraitDryadMageImg from '../assets/images/portrait_dryad_mage_1795095501974.jpg';
-import portraitDryadMageMImg from '../assets/images/portrait_dryad_mage_m_1795097610314.jpg';
-import portraitDryadWardenImg from '../assets/images/portrait_dryad_warden_1795093740540.jpg';
-import portraitDryadWarriorMImg from '../assets/images/portrait_dryad_warrior_m_1795097606457.jpg';
-import portraitDwarfIroncladImg from '../assets/images/portrait_dwarf_ironclad_1795093741247.jpg';
-import portraitDwarfMageImg from '../assets/images/portrait_dwarf_mage_1795095500639.jpg';
-import portraitDwarfWomanMageImg from '../assets/images/portrait_dwarf_woman_mage_1795097640311.jpg';
-import portraitDwarfWomanWarriorImg from '../assets/images/portrait_dwarf_woman_warrior_1795097641470.jpg';
-import portraitHighElfMageImg from '../assets/images/portrait_high_elf_mage_1795095501429.jpg';
-import portraitHighElfMageMImg from '../assets/images/portrait_high_elf_mage_m_1795097606699.jpg';
-import portraitHighElfWarriorImg from '../assets/images/portrait_high_elf_warrior_1795093741297.jpg';
-import portraitHighElfWarriorFImg from '../assets/images/portrait_high_elf_warrior_f_1795097606341.jpg';
-import portraitHumanMageImg from '../assets/images/portrait_human_mage_1795095501255.jpg';
-import portraitHumanMageFImg from '../assets/images/portrait_human_mage_f_1795097606578.jpg';
-import portraitHumanShieldmaidenImg from '../assets/images/portrait_human_shieldmaiden_1795093741610.jpg';
+const BUNDLED_IMAGE_MODULES = import.meta.glob('../assets/images/*.{jpg,png}', {
+  eager: true,
+  import: 'default',
+}) as Record<string, string>;
+
+function resolveImageAsset(filename: string, fallbackFilename?: string): string {
+  const direct = BUNDLED_IMAGE_MODULES[`../assets/images/${filename}`];
+  if (direct) return direct;
+  if (fallbackFilename) {
+    const fallback = BUNDLED_IMAGE_MODULES[`../assets/images/${fallbackFilename}`];
+    if (fallback) return fallback;
+  }
+  const firstAvailable = Object.values(BUNDLED_IMAGE_MODULES)[0];
+  return firstAvailable ?? '';
+}
+
+const heroWarriorValeriusImg = resolveImageAsset('hero_warrior_valerius_1795088249220.jpg');
+const goblinArtImg = resolveImageAsset('goblin-art.png');
+const mapBattlegroundImg = resolveImageAsset('map-battleground.jpg');
+
+const portraitHumanShieldmaidenImg = resolveImageAsset(
+  'portrait_human_shieldmaiden_1795093741610.jpg',
+  'hero_warrior_valerius_1795088249220.jpg'
+);
+const portraitHumanMageImg = resolveImageAsset(
+  'portrait_human_mage_male.jpg',
+  'portrait_human_mage_f_1795097606578.jpg'
+);
+const portraitHumanMageFImg = resolveImageAsset(
+  'portrait_human_mage_f_1795097606578.jpg',
+  'portrait_human_shieldmaiden_1795093741610.jpg'
+);
+
+const portraitHighElfWarriorImg = resolveImageAsset(
+  'portrait_high_elf_warrior_1795093741297.jpg',
+  'hero_warrior_valerius_1795088249220.jpg'
+);
+const portraitHighElfWarriorFImg = resolveImageAsset(
+  'portrait_high_elf_warrior_f_1795097606341.jpg',
+  'portrait_high_elf_warrior_1795093741297.jpg'
+);
+const portraitHighElfMageMImg = resolveImageAsset(
+  'portrait_high_elf_mage_m_1795097606699.jpg',
+  'portrait_high_elf_warrior_1795093741297.jpg'
+);
+const portraitHighElfMageImg = resolveImageAsset(
+  'portrait_high_elf_mage_female.jpg',
+  'portrait_high_elf_mage_m_1795097606699.jpg'
+);
+
+const portraitDwarfIroncladImg = resolveImageAsset(
+  'portrait_dwarf_ironclad_1795093741247.jpg',
+  'hero_warrior_valerius_1795088249220.jpg'
+);
+const portraitDwarfWomanWarriorImg = resolveImageAsset(
+  'portrait_dwarf_woman_warrior_1795097641470.jpg',
+  'portrait_dwarf_ironclad_1795093741247.jpg'
+);
+const portraitDwarfMageImg = resolveImageAsset(
+  'portrait_dwarf_mage_male.jpg',
+  'portrait_dwarf_woman_mage_1795097640311.jpg'
+);
+const portraitDwarfWomanMageImg = resolveImageAsset(
+  'portrait_dwarf_woman_mage_1795097640311.jpg',
+  'portrait_dwarf_ironclad_1795093741247.jpg'
+);
+
+const portraitDryadWarriorMImg = resolveImageAsset(
+  'portrait_dryad_warrior_m_1795097606457.jpg',
+  'portrait_dryad_warden_1795093740540.jpg'
+);
+const portraitDryadWardenImg = resolveImageAsset(
+  'portrait_dryad_warden_1795093740540.jpg',
+  'portrait_dryad_warrior_m_1795097606457.jpg'
+);
+const portraitDryadMageMImg = resolveImageAsset(
+  'portrait_dryad_mage_m_1795097610314.jpg',
+  'portrait_dryad_warrior_m_1795097606457.jpg'
+);
+const portraitDryadMageImg = resolveImageAsset(
+  'portrait_dryad_mage_female.jpg',
+  'portrait_dryad_mage_m_1795097610314.jpg'
+);
 
 export const HERO_PORTRAIT_URL = heroWarriorValeriusImg;
 export const GOBLIN_PORTRAIT_URL = goblinArtImg;
