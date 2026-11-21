@@ -97,6 +97,53 @@ export interface LethalityStrikeOptions {
   didHit: boolean;
 }
 
+export interface SlimeSummonOptions {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  travelMs?: number;
+}
+
+export interface SlimeAcidSlamOptions {
+  startX: number;
+  startY: number;
+  targetX: number;
+  targetY: number;
+  isCritical: boolean;
+  didHit: boolean;
+}
+
+export interface SlimeMoveTrailOptions {
+  x: number;
+  y: number;
+  radius: number;
+  angleRad: number;
+  isBoss: boolean;
+}
+
+export interface SlimeStackCollapseOptions {
+  bossX: number;
+  bossY: number;
+  targetX: number;
+  targetY: number;
+  adjacentAllies: number;
+}
+
+export interface SlimeMotherSpawnRoarOptions {
+  centerX: number;
+  centerY: number;
+  sizePx: number;
+}
+
+export interface BannerOfGloryOptions {
+  startX: number;
+  startY: number;
+  targetX: number;
+  targetY: number;
+  radiusPx: number;
+}
+
 export interface SpellVfxCanvasHandle {
   playArcaneBolt: (opts: ArcaneBoltEffectOptions) => void;
   playFireBreath: (opts: FireBreathEffectOptions) => void;
@@ -111,6 +158,12 @@ export interface SpellVfxCanvasHandle {
   playStealthSmoke: (opts: StealthSmokeOptions) => void;
   playSprintBurst: (opts: SprintBurstOptions) => void;
   playLethalityStrike: (opts: LethalityStrikeOptions) => void;
+  playSlimeSummon: (opts: SlimeSummonOptions) => void;
+  playSlimeAcidSlam: (opts: SlimeAcidSlamOptions) => void;
+  playSlimeMoveTrail: (opts: SlimeMoveTrailOptions) => void;
+  playSlimeStackCollapse: (opts: SlimeStackCollapseOptions) => void;
+  playSlimeMotherSpawnRoar: (opts: SlimeMotherSpawnRoarOptions) => void;
+  playBannerOfGlory: (opts: BannerOfGloryOptions) => void;
   clear: () => void;
 }
 
@@ -382,6 +435,90 @@ interface LethalityStrikeEffect {
   speedlineAngles: number[];
 }
 
+interface SlimeSummonEffect {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  arcHeight: number;
+  travelMs: number;
+  totalDuration: number;
+  elapsed: number;
+  landed: boolean;
+  wobbleSeed: number;
+}
+
+interface SlimeAcidSlamEffect {
+  startX: number;
+  startY: number;
+  targetX: number;
+  targetY: number;
+  angle: number;
+  isCritical: boolean;
+  didHit: boolean;
+  impactSpawned: boolean;
+  elapsed: number;
+  duration: number;
+  waveSeed: number;
+}
+
+interface SlimeDroplet {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  gravity: number;
+  radius: number;
+  elapsed: number;
+  duration: number;
+  tint: 'lime' | 'emerald' | 'chartreuse' | 'gold';
+  kind: 'drop' | 'bubble';
+}
+
+interface SlimeTrailBlotch {
+  x: number;
+  y: number;
+  radius: number;
+  angleRad: number;
+  isBoss: boolean;
+  elapsed: number;
+  duration: number;
+  lobeOffsets: Array<{ dx: number; dy: number; r: number }>;
+}
+
+interface SlimeStackCollapseEffect {
+  bossX: number;
+  bossY: number;
+  targetX: number;
+  targetY: number;
+  adjacentAllies: number;
+  elapsed: number;
+  duration: number;
+  burstSpawned: boolean;
+}
+
+interface SlimeMotherSpawnRoarEffect {
+  centerX: number;
+  centerY: number;
+  sizePx: number;
+  elapsed: number;
+  duration: number;
+  eruptBurstSpawned: boolean;
+  roarBurstSpawned: boolean;
+}
+
+interface BannerOfGloryEffect {
+  startX: number;
+  startY: number;
+  targetX: number;
+  targetY: number;
+  radiusPx: number;
+  travelMs: number;
+  elapsed: number;
+  duration: number;
+  impactBurstSpawned: boolean;
+}
+
 function evalQuadBezier(
   t: number,
   x0: number,
@@ -430,6 +567,13 @@ export const SpellVfxCanvas = forwardRef<SpellVfxCanvasHandle>(function SpellVfx
     shadowWisps: [] as ShadowWisp[],
     sprintRings: [] as SprintRingEffect[],
     lethalityStrikes: [] as LethalityStrikeEffect[],
+    slimeSummons: [] as SlimeSummonEffect[],
+    slimeAcidSlams: [] as SlimeAcidSlamEffect[],
+    slimeDroplets: [] as SlimeDroplet[],
+    slimeTrails: [] as SlimeTrailBlotch[],
+    slimeStackCollapses: [] as SlimeStackCollapseEffect[],
+    slimeSpawnRoars: [] as SlimeMotherSpawnRoarEffect[],
+    bannerOfGlories: [] as BannerOfGloryEffect[],
   });
 
   const hasActiveEffects = () => {
@@ -459,7 +603,14 @@ export const SpellVfxCanvas = forwardRef<SpellVfxCanvasHandle>(function SpellVfx
       s.thrownDaggers.length > 0 ||
       s.shadowWisps.length > 0 ||
       s.sprintRings.length > 0 ||
-      s.lethalityStrikes.length > 0
+      s.lethalityStrikes.length > 0 ||
+      s.slimeSummons.length > 0 ||
+      s.slimeAcidSlams.length > 0 ||
+      s.slimeDroplets.length > 0 ||
+      s.slimeTrails.length > 0 ||
+      s.slimeStackCollapses.length > 0 ||
+      s.slimeSpawnRoars.length > 0 ||
+      s.bannerOfGlories.length > 0
     );
   };
 
@@ -2432,6 +2583,999 @@ export const SpellVfxCanvas = forwardRef<SpellVfxCanvasHandle>(function SpellVfx
       }
     }
 
+    // 25. Slime Movement Ooze Trails (Viscous Glossy Puddles Left Behind While Gliding)
+    for (let i = s.slimeTrails.length - 1; i >= 0; i--) {
+      const tr = s.slimeTrails[i];
+      tr.elapsed += dtMs;
+      if (tr.elapsed >= tr.duration) {
+        s.slimeTrails.splice(i, 1);
+        continue;
+      }
+
+      const u = tr.elapsed / tr.duration;
+      const enter = Math.min(1, u / 0.12);
+      const fade = Math.max(0, 1 - Math.pow(Math.max(0, (u - 0.28) / 0.72), 1.4));
+      const alpha = enter * fade;
+      const scale = 0.72 + enter * 0.28 + u * 0.14;
+
+      ctx.save();
+      ctx.translate(tr.x, tr.y);
+      ctx.rotate(tr.angleRad);
+      ctx.scale(scale, scale);
+
+      // Outer stretched wet slime smear
+      const rx = tr.radius * 1.18;
+      const ry = tr.radius * 0.74;
+      const trailGrad = ctx.createRadialGradient(0, 0, tr.radius * 0.12, 0, 0, rx);
+      trailGrad.addColorStop(0, `rgba(163, 230, 53, ${alpha * 0.56})`);
+      trailGrad.addColorStop(0.55, `rgba(34, 197, 94, ${alpha * 0.42})`);
+      trailGrad.addColorStop(0.85, `rgba(20, 83, 45, ${alpha * 0.28})`);
+      trailGrad.addColorStop(1, 'rgba(20, 83, 45, 0)');
+
+      ctx.fillStyle = trailGrad;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Organic secondary ooze lobes
+      for (const lobe of tr.lobeOffsets) {
+        ctx.fillStyle = `rgba(132, 204, 22, ${alpha * 0.36})`;
+        ctx.beginPath();
+        ctx.arc(lobe.dx, lobe.dy, lobe.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Glossy wet highlight crescent
+      ctx.fillStyle = `rgba(236, 252, 203, ${alpha * 0.48})`;
+      ctx.beginPath();
+      ctx.ellipse(-rx * 0.18, -ry * 0.24, rx * 0.32, ry * 0.15, -0.15, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Subtle glowing rim pulse on fresh smear
+      if (u < 0.35) {
+        const rimAlpha = (1 - u / 0.35) * 0.65;
+        ctx.strokeStyle = `rgba(190, 242, 100, ${rimAlpha})`;
+        ctx.lineWidth = tr.isBoss ? 2.2 : 1.4;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, rx * 0.92, ry * 0.92, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // 26. Slime Mãe Minion Summon (Mitotic Slime Tether + Arcing Globule + Landing Acid Splash)
+    for (let i = s.slimeSummons.length - 1; i >= 0; i--) {
+      const sm = s.slimeSummons[i];
+      sm.elapsed += dtMs;
+      if (sm.elapsed >= sm.totalDuration) {
+        s.slimeSummons.splice(i, 1);
+        continue;
+      }
+
+      const travelU = Math.min(1, sm.elapsed / sm.travelMs);
+      const easeT = 1 - Math.pow(1 - travelU, 2.2);
+      const curX = sm.startX + (sm.endX - sm.startX) * easeT;
+      const arcLift = Math.sin(Math.PI * travelU) * sm.arcHeight;
+      const curY = sm.startY + (sm.endY - sm.startY) * easeT - arcLift;
+
+      // Origin mitotic ripple on Slime Mãe
+      if (sm.elapsed < 380) {
+        const orgU = sm.elapsed / 380;
+        const orgAlpha = (1 - orgU) * 0.72;
+        ctx.save();
+        ctx.strokeStyle = `rgba(163, 230, 53, ${orgAlpha})`;
+        ctx.lineWidth = 3.2 * (1 - orgU * 0.55);
+        ctx.shadowColor = '#84cc16';
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.arc(sm.startX, sm.startY, 20 + orgU * 38, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Phase 1: Traveling gelatinous globule + elastic slime tether
+      if (travelU < 1) {
+        // Elastic goo tether while splitting away from mother slime
+        if (travelU < 0.72) {
+          const tetherFade = 1 - travelU / 0.72;
+          const midX = (sm.startX + curX) * 0.5;
+          const midY = (sm.startY + curY) * 0.5 + 10 * (1 - tetherFade);
+
+          ctx.save();
+          ctx.lineCap = 'round';
+          // Dark emerald membrane
+          ctx.strokeStyle = `rgba(20, 83, 45, ${tetherFade * 0.85})`;
+          ctx.lineWidth = Math.max(2, 11 * tetherFade);
+          ctx.beginPath();
+          ctx.moveTo(sm.startX, sm.startY);
+          ctx.quadraticCurveTo(midX, midY, curX, curY);
+          ctx.stroke();
+
+          // Luminous lime inner ooze strand
+          ctx.strokeStyle = `rgba(163, 230, 53, ${tetherFade * 0.92})`;
+          ctx.lineWidth = Math.max(1.2, 6 * tetherFade);
+          ctx.shadowColor = '#84cc16';
+          ctx.shadowBlur = 12;
+          ctx.beginPath();
+          ctx.moveTo(sm.startX, sm.startY);
+          ctx.quadraticCurveTo(midX, midY, curX, curY);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        // Ground shadow directly beneath arcing globule
+        const shadowX = sm.startX + (sm.endX - sm.startX) * easeT;
+        const shadowY = sm.startY + (sm.endY - sm.startY) * easeT + 4;
+        const shadowScale = 0.55 + 0.45 * (1 - Math.sin(Math.PI * travelU));
+        ctx.save();
+        ctx.fillStyle = `rgba(5, 22, 12, ${0.42 * shadowScale})`;
+        ctx.beginPath();
+        ctx.ellipse(shadowX, shadowY, 13 * shadowScale, 6 * shadowScale, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Wobbling gelatinous globule body
+        const blobAngle = Math.atan2(
+          sm.endY - sm.startY - Math.cos(Math.PI * travelU) * sm.arcHeight * 0.9,
+          sm.endX - sm.startX
+        );
+        const stretchX = 1.24 + Math.sin(sm.elapsed * 0.03 + sm.wobbleSeed) * 0.12;
+        const stretchY = 0.82 - Math.sin(sm.elapsed * 0.03 + sm.wobbleSeed) * 0.08;
+        const baseR = 13.5 + Math.sin(Math.PI * travelU) * 3.5;
+
+        ctx.save();
+        ctx.translate(curX, curY);
+        ctx.rotate(blobAngle);
+        ctx.scale(stretchX, stretchY);
+
+        const blobGrad = ctx.createRadialGradient(-3, -4, 2, 0, 0, baseR);
+        blobGrad.addColorStop(0, '#ecfccb');
+        blobGrad.addColorStop(0.35, '#a3e635');
+        blobGrad.addColorStop(0.75, '#16a34a');
+        blobGrad.addColorStop(1, '#14532d');
+
+        ctx.shadowColor = '#84cc16';
+        ctx.shadowBlur = 18;
+        ctx.fillStyle = blobGrad;
+        ctx.beginPath();
+        ctx.arc(0, 0, baseR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Wet glossy specular highlight
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+        ctx.beginPath();
+        ctx.ellipse(-baseR * 0.3, -baseR * 0.32, baseR * 0.34, baseR * 0.18, -0.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Drip tiny trailing ooze particles in flight
+        if (Math.random() < 0.45) {
+          s.slimeDroplets.push({
+            x: curX + (Math.random() - 0.5) * 8,
+            y: curY + (Math.random() - 0.5) * 8,
+            vx: (Math.random() - 0.5) * 40,
+            vy: -10 + Math.random() * 30,
+            gravity: 210,
+            radius: 2 + Math.random() * 2.5,
+            elapsed: 0,
+            duration: 280 + Math.random() * 180,
+            tint: Math.random() < 0.5 ? 'lime' : 'emerald',
+            kind: 'drop',
+          });
+        }
+      } else {
+        // Trigger landing splash burst once
+        if (!sm.landed) {
+          sm.landed = true;
+          for (let k = 0; k < 18; k++) {
+            const ang = (k / 18) * Math.PI * 2 + (Math.random() - 0.5) * 0.25;
+            const speed = 55 + Math.random() * 125;
+            s.slimeDroplets.push({
+              x: sm.endX + (Math.random() - 0.5) * 8,
+              y: sm.endY + (Math.random() - 0.5) * 8,
+              vx: Math.cos(ang) * speed,
+              vy: Math.sin(ang) * speed - 48,
+              gravity: 260,
+              radius: 2.5 + Math.random() * 3.8,
+              elapsed: 0,
+              duration: 360 + Math.random() * 240,
+              tint: k % 3 === 0 ? 'chartreuse' : k % 2 === 0 ? 'lime' : 'emerald',
+              kind: 'drop',
+            });
+          }
+          for (let b = 0; b < 7; b++) {
+            s.slimeDroplets.push({
+              x: sm.endX + (Math.random() - 0.5) * 32,
+              y: sm.endY + (Math.random() - 0.5) * 18,
+              vx: (Math.random() - 0.5) * 18,
+              vy: -(24 + Math.random() * 36),
+              gravity: -12,
+              radius: 3 + Math.random() * 3.5,
+              elapsed: 0,
+              duration: 420 + Math.random() * 260,
+              tint: 'chartreuse',
+              kind: 'bubble',
+            });
+          }
+        }
+
+        // Phase 2: Bubbling landing puddle + expanding emerald spawn rings
+        const landU = (sm.elapsed - sm.travelMs) / (sm.totalDuration - sm.travelMs);
+        const puddleAlpha = Math.sin(Math.min(1, landU * 1.45) * Math.PI * 0.5) * (1 - landU);
+        const puddleRx = 26 + landU * 16;
+        const puddleRy = 18 + landU * 10;
+
+        ctx.save();
+        const puddleGrad = ctx.createRadialGradient(
+          sm.endX,
+          sm.endY,
+          4,
+          sm.endX,
+          sm.endY,
+          puddleRx
+        );
+        puddleGrad.addColorStop(0, `rgba(190, 242, 100, ${puddleAlpha * 0.72})`);
+        puddleGrad.addColorStop(0.55, `rgba(101, 163, 13, ${puddleAlpha * 0.55})`);
+        puddleGrad.addColorStop(1, 'rgba(20, 83, 45, 0)');
+        ctx.fillStyle = puddleGrad;
+        ctx.beginPath();
+        ctx.ellipse(sm.endX, sm.endY + 4, puddleRx, puddleRy, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Twin expanding neon slime rings
+        const ringAlpha = (1 - landU) * 0.9;
+        ctx.strokeStyle = `rgba(190, 242, 100, ${ringAlpha})`;
+        ctx.lineWidth = Math.max(1, 3.6 * (1 - landU));
+        ctx.shadowColor = '#84cc16';
+        ctx.shadowBlur = 16;
+        ctx.beginPath();
+        ctx.arc(sm.endX, sm.endY, 12 + landU * 42, 0, Math.PI * 2);
+        ctx.stroke();
+
+        if (landU < 0.75) {
+          const innerU = landU / 0.75;
+          ctx.strokeStyle = `rgba(74, 222, 128, ${(1 - innerU) * 0.78})`;
+          ctx.lineWidth = Math.max(1, 2.4 * (1 - innerU));
+          ctx.beginPath();
+          ctx.arc(sm.endX, sm.endY, 8 + innerU * 28, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+
+    // 26. Slime Mãe Basic Attack ("Pancada Ácida" — Viscous Acid Tendril Slam + Corrosive Splash)
+    for (let i = s.slimeAcidSlams.length - 1; i >= 0; i--) {
+      const slam = s.slimeAcidSlams[i];
+      slam.elapsed += dtMs;
+      if (slam.elapsed >= slam.duration) {
+        s.slimeAcidSlams.splice(i, 1);
+        continue;
+      }
+
+      const u = slam.elapsed / slam.duration;
+      const dx = slam.targetX - slam.startX;
+      const dy = slam.targetY - slam.startY;
+      const dist = Math.hypot(dx, dy) || 1;
+      const nx = -dy / dist;
+      const ny = dx / dist;
+
+      // Phase 1 (0 -> 0.48): Fast whip-out tendril slam, then elastic snap-back retraction
+      if (u < 0.56) {
+        let reach = 0;
+        if (u < 0.24) {
+          // Rapid forward whip extension
+          const extU = u / 0.24;
+          reach = 1 - Math.pow(1 - extU, 2.8);
+        } else {
+          // Elastic recoil back into Slime Mãe
+          const retU = (u - 0.24) / 0.32;
+          reach = Math.max(0, 1 - Math.pow(retU, 1.55));
+        }
+
+        const overshoot = slam.didHit ? 1.0 : 0.86;
+        const tipX = slam.startX + dx * reach * overshoot + (slam.didHit ? 0 : nx * 16 * reach);
+        const tipY = slam.startY + dy * reach * overshoot + (slam.didHit ? 0 : ny * 16 * reach);
+
+        const whipBend = Math.sin(u * Math.PI * 3.2 + slam.waveSeed) * 14 * reach;
+        const ctrlX = (slam.startX + tipX) * 0.5 + nx * whipBend;
+        const ctrlY = (slam.startY + tipY) * 0.5 + ny * whipBend;
+        const tendrilAlpha = Math.min(1, (0.56 - u) / 0.18);
+        const thickness = (slam.isCritical ? 18 : 14) * (0.45 + 0.55 * reach);
+
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        // Outer dark swamp-emerald membrane
+        ctx.strokeStyle = `rgba(12, 54, 28, ${tendrilAlpha * 0.92})`;
+        ctx.lineWidth = thickness + 6;
+        ctx.beginPath();
+        ctx.moveTo(slam.startX, slam.startY);
+        ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
+        ctx.stroke();
+
+        // Main vivid toxic green tendril body
+        const tendrilGrad = ctx.createLinearGradient(slam.startX, slam.startY, tipX, tipY);
+        tendrilGrad.addColorStop(0, `rgba(22, 163, 74, ${tendrilAlpha * 0.88})`);
+        tendrilGrad.addColorStop(0.55, `rgba(132, 204, 22, ${tendrilAlpha * 0.96})`);
+        tendrilGrad.addColorStop(
+          1,
+          slam.isCritical
+            ? `rgba(254, 240, 138, ${tendrilAlpha})`
+            : `rgba(217, 249, 157, ${tendrilAlpha})`
+        );
+        ctx.strokeStyle = tendrilGrad;
+        ctx.lineWidth = thickness;
+        ctx.shadowColor = slam.isCritical ? '#facc15' : '#84cc16';
+        ctx.shadowBlur = slam.isCritical ? 20 : 14;
+        ctx.beginPath();
+        ctx.moveTo(slam.startX, slam.startY);
+        ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
+        ctx.stroke();
+
+        // Glossy inner specular streak along the acid whip
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = `rgba(255, 255, 255, ${tendrilAlpha * 0.52})`;
+        ctx.lineWidth = Math.max(2, thickness * 0.24);
+        ctx.beginPath();
+        ctx.moveTo(slam.startX + nx * 2, slam.startY + ny * 2);
+        ctx.quadraticCurveTo(ctrlX + nx * 2, ctrlY + ny * 2, tipX, tipY);
+        ctx.stroke();
+
+        // Heavy bulbous gelatinous club at the striking tip
+        const tipR = (slam.isCritical ? 16 : 12.5) * (0.55 + 0.45 * reach);
+        const tipGrad = ctx.createRadialGradient(tipX - 2, tipY - 2, 2, tipX, tipY, tipR);
+        tipGrad.addColorStop(0, '#fef9c3');
+        tipGrad.addColorStop(0.45, slam.isCritical ? '#bef264' : '#a3e635');
+        tipGrad.addColorStop(1, '#15803d');
+        ctx.fillStyle = tipGrad;
+        ctx.shadowColor = '#84cc16';
+        ctx.shadowBlur = 16;
+        ctx.beginPath();
+        ctx.arc(tipX, tipY, tipR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Spawn corrosive splatter droplets on impact frame (~u = 0.22)
+      if (!slam.impactSpawned && u >= 0.2) {
+        slam.impactSpawned = true;
+        const dropCount = slam.didHit ? (slam.isCritical ? 28 : 20) : 9;
+        for (let k = 0; k < dropCount; k++) {
+          const spread =
+            k < dropCount * 0.6
+              ? (Math.random() - 0.5) * 1.45
+              : (Math.random() - 0.5) * Math.PI * 2;
+          const ang = slam.angle + spread;
+          const speed = (slam.didHit ? 85 : 55) + Math.random() * (slam.isCritical ? 185 : 135);
+          s.slimeDroplets.push({
+            x: slam.targetX + (Math.random() - 0.5) * 10,
+            y: slam.targetY + (Math.random() - 0.5) * 10,
+            vx: Math.cos(ang) * speed,
+            vy: Math.sin(ang) * speed - 30,
+            gravity: 220,
+            radius: (slam.isCritical ? 3.2 : 2.5) + Math.random() * 3.8,
+            elapsed: 0,
+            duration: 340 + Math.random() * 260,
+            tint:
+              slam.isCritical && k % 4 === 0
+                ? 'gold'
+                : k % 3 === 0
+                ? 'chartreuse'
+                : k % 2 === 0
+                ? 'lime'
+                : 'emerald',
+            kind: 'drop',
+          });
+        }
+        if (slam.didHit) {
+          for (let b = 0; b < (slam.isCritical ? 10 : 7); b++) {
+            s.slimeDroplets.push({
+              x: slam.targetX + (Math.random() - 0.5) * 34,
+              y: slam.targetY + (Math.random() - 0.5) * 20,
+              vx: (Math.random() - 0.5) * 22,
+              vy: -(28 + Math.random() * 42),
+              gravity: -14,
+              radius: 3 + Math.random() * 4,
+              elapsed: 0,
+              duration: 420 + Math.random() * 260,
+              tint: slam.isCritical && b % 3 === 0 ? 'gold' : 'chartreuse',
+              kind: 'bubble',
+            });
+          }
+        }
+      }
+
+      // Phase 2 (0.2 -> 1.0): Impact acid puddle + corrosive shockwave rings + splatter flash
+      if (u >= 0.2) {
+        const impU = (u - 0.2) / 0.8;
+        const fade = Math.max(0, 1 - impU);
+        const splashScale = slam.didHit ? (slam.isCritical ? 1.28 : 1.0) : 0.62;
+
+        ctx.save();
+        // Corrosive puddle under target
+        const puddleR = (28 + impU * 18) * splashScale;
+        const puddleGrad = ctx.createRadialGradient(
+          slam.targetX,
+          slam.targetY,
+          3,
+          slam.targetX,
+          slam.targetY,
+          puddleR
+        );
+        puddleGrad.addColorStop(
+          0,
+          slam.isCritical
+            ? `rgba(254, 240, 138, ${fade * 0.72})`
+            : `rgba(190, 242, 100, ${fade * 0.68})`
+        );
+        puddleGrad.addColorStop(0.55, `rgba(101, 163, 13, ${fade * 0.52})`);
+        puddleGrad.addColorStop(1, 'rgba(20, 83, 45, 0)');
+        ctx.fillStyle = puddleGrad;
+        ctx.beginPath();
+        ctx.ellipse(
+          slam.targetX,
+          slam.targetY + 5,
+          puddleR,
+          puddleR * 0.68,
+          0,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+
+        // Crisp expanding acid shockwave ring
+        if (slam.didHit) {
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.strokeStyle = slam.isCritical
+            ? `rgba(253, 224, 71, ${fade * 0.92})`
+            : `rgba(163, 230, 53, ${fade * 0.9})`;
+          ctx.lineWidth = Math.max(1.2, (slam.isCritical ? 5.2 : 3.8) * fade);
+          ctx.shadowColor = slam.isCritical ? '#facc15' : '#84cc16';
+          ctx.shadowBlur = 18;
+          ctx.beginPath();
+          ctx.arc(
+            slam.targetX,
+            slam.targetY,
+            (12 + impU * 48) * splashScale,
+            0,
+            Math.PI * 2
+          );
+          ctx.stroke();
+
+          // Bright directional splash crescent at initial impact
+          if (impU < 0.35) {
+            const flashAlpha = (1 - impU / 0.35) * 0.9;
+            ctx.translate(slam.targetX, slam.targetY);
+            ctx.rotate(slam.angle);
+            ctx.strokeStyle = `rgba(236, 252, 203, ${flashAlpha})`;
+            ctx.lineWidth = (slam.isCritical ? 8 : 6) * (1 - impU / 0.35);
+            ctx.beginPath();
+            ctx.arc(0, 0, (18 + impU * 38) * splashScale, -1.05, 1.05);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+    }
+
+    // 28. Slime Mãe "Colapso Ácido" (FFXIV Stack Marker Converging Beam + 3x3 Acid-Gold Detonation)
+    for (let i = s.slimeStackCollapses.length - 1; i >= 0; i--) {
+      const sc = s.slimeStackCollapses[i];
+      sc.elapsed += dtMs;
+      if (sc.elapsed >= sc.duration) {
+        s.slimeStackCollapses.splice(i, 1);
+        continue;
+      }
+
+      const u = sc.elapsed / sc.duration;
+
+      // Phase 1 (0 -> 0.28): Boss energy conduit + 4 cardinal golden arrows collapsing inward
+      if (u < 0.34) {
+        const cU = Math.min(1, u / 0.26);
+        const fade = u < 0.26 ? 1 : 1 - (u - 0.26) / 0.08;
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        // Boss-to-target toxic golden beam
+        const beamGrad = ctx.createLinearGradient(sc.bossX, sc.bossY, sc.targetX, sc.targetY);
+        beamGrad.addColorStop(0, `rgba(132, 204, 22, ${fade * 0.72})`);
+        beamGrad.addColorStop(0.6, `rgba(250, 204, 21, ${fade * 0.9})`);
+        beamGrad.addColorStop(1, `rgba(254, 249, 195, ${fade})`);
+        ctx.strokeStyle = beamGrad;
+        ctx.lineWidth = (5 + cU * 8) * fade;
+        ctx.lineCap = 'round';
+        ctx.shadowColor = '#facc15';
+        ctx.shadowBlur = 18;
+        ctx.beginPath();
+        ctx.moveTo(sc.bossX, sc.bossY);
+        ctx.lineTo(sc.targetX, sc.targetY);
+        ctx.stroke();
+
+        // Collapsing golden ring
+        const colR = Math.max(8, 86 * (1 - cU * 0.85));
+        ctx.strokeStyle = `rgba(253, 224, 71, ${fade * 0.95})`;
+        ctx.lineWidth = 4.2 * fade;
+        ctx.beginPath();
+        ctx.arc(sc.targetX, sc.targetY, colR, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 4 inward converging bolts from N/S/E/W
+        const dirs = [0, Math.PI * 0.5, Math.PI, Math.PI * 1.5];
+        for (const ang of dirs) {
+          const outerDist = 92 * (1 - cU * 0.78);
+          const innerDist = Math.max(4, outerDist - 26);
+          ctx.strokeStyle = `rgba(254, 240, 138, ${fade * 0.95})`;
+          ctx.lineWidth = 4.5 * fade;
+          ctx.beginPath();
+          ctx.moveTo(
+            sc.targetX + Math.cos(ang) * outerDist,
+            sc.targetY + Math.sin(ang) * outerDist
+          );
+          ctx.lineTo(
+            sc.targetX + Math.cos(ang) * innerDist,
+            sc.targetY + Math.sin(ang) * innerDist
+          );
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // Trigger detonation burst at u >= 0.24
+      if (!sc.burstSpawned && u >= 0.24) {
+        sc.burstSpawned = true;
+        for (let k = 0; k < 28; k++) {
+          const ang = (k / 28) * Math.PI * 2 + (Math.random() - 0.5) * 0.2;
+          const speed = 95 + Math.random() * 190;
+          s.slimeDroplets.push({
+            x: sc.targetX + (Math.random() - 0.5) * 14,
+            y: sc.targetY + (Math.random() - 0.5) * 14,
+            vx: Math.cos(ang) * speed,
+            vy: Math.sin(ang) * speed - 35,
+            gravity: 210,
+            radius: 3 + Math.random() * 4.2,
+            elapsed: 0,
+            duration: 420 + Math.random() * 280,
+            tint: k % 3 === 0 ? 'gold' : k % 2 === 0 ? 'chartreuse' : 'lime',
+            kind: 'drop',
+          });
+        }
+        for (let b = 0; b < 10; b++) {
+          s.slimeDroplets.push({
+            x: sc.targetX + (Math.random() - 0.5) * 76,
+            y: sc.targetY + (Math.random() - 0.5) * 56,
+            vx: (Math.random() - 0.5) * 20,
+            vy: -(34 + Math.random() * 48),
+            gravity: -15,
+            radius: 3.5 + Math.random() * 4,
+            elapsed: 0,
+            duration: 500 + Math.random() * 280,
+            tint: b % 2 === 0 ? 'gold' : 'chartreuse',
+            kind: 'bubble',
+          });
+        }
+      }
+
+      // Phase 2 (0.24 -> 1.0): Massive golden-acid 3x3 shockwave eruption + pillar flash
+      if (u >= 0.24) {
+        const bU = (u - 0.24) / 0.76;
+        const fade = Math.max(0, 1 - bU);
+
+        ctx.save();
+        // Ground acid-gold blast zone covering the 3x3 stack area (~84px radius)
+        const blastR = 32 + Math.pow(bU, 0.55) * 62;
+        const blastGrad = ctx.createRadialGradient(
+          sc.targetX,
+          sc.targetY,
+          4,
+          sc.targetX,
+          sc.targetY,
+          blastR
+        );
+        blastGrad.addColorStop(0, `rgba(254, 249, 195, ${fade * 0.85})`);
+        blastGrad.addColorStop(0.35, `rgba(250, 204, 21, ${fade * 0.65})`);
+        blastGrad.addColorStop(0.7, `rgba(132, 204, 22, ${fade * 0.45})`);
+        blastGrad.addColorStop(1, 'rgba(20, 83, 45, 0)');
+        ctx.fillStyle = blastGrad;
+        ctx.beginPath();
+        ctx.arc(sc.targetX, sc.targetY, blastR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Twin expanding shockwave rings
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `rgba(253, 224, 71, ${fade * 0.95})`;
+        ctx.lineWidth = Math.max(1.5, 6 * fade);
+        ctx.shadowColor = '#facc15';
+        ctx.shadowBlur = 22;
+        ctx.beginPath();
+        ctx.arc(sc.targetX, sc.targetY, 18 + bU * 78, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.strokeStyle = `rgba(163, 230, 53, ${fade * 0.85})`;
+        ctx.lineWidth = Math.max(1.2, 4 * fade);
+        ctx.shadowColor = '#84cc16';
+        ctx.beginPath();
+        ctx.arc(sc.targetX, sc.targetY, 10 + bU * 56, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Vertical energy pillar flash on early detonation
+        if (bU < 0.42) {
+          const pAlpha = (1 - bU / 0.42) * 0.82;
+          const pW = (34 - bU * 40);
+          const colGrad = ctx.createLinearGradient(
+            sc.targetX,
+            sc.targetY - 120,
+            sc.targetX,
+            sc.targetY + 24
+          );
+          colGrad.addColorStop(0, 'rgba(254, 249, 195, 0)');
+          colGrad.addColorStop(0.55, `rgba(253, 224, 71, ${pAlpha})`);
+          colGrad.addColorStop(1, `rgba(190, 242, 100, ${pAlpha * 0.85})`);
+          ctx.fillStyle = colGrad;
+          ctx.fillRect(sc.targetX - pW / 2, sc.targetY - 120, pW, 144);
+        }
+        ctx.restore();
+      }
+    }
+
+    // 28B. SLIME MÃE BOSS ENTRANCE: ABYSSAL EMERGENCE + ULTRASONIC ROAR SHOCKWAVES
+    for (let i = s.slimeSpawnRoars.length - 1; i >= 0; i--) {
+      const sr = s.slimeSpawnRoars[i];
+      sr.elapsed += dtMs;
+      if (sr.elapsed >= sr.duration) {
+        s.slimeSpawnRoars.splice(i, 1);
+        continue;
+      }
+
+      const u = sr.elapsed / sr.duration;
+      const baseR = sr.sizePx * 0.52;
+
+      // Spawn viscous eruption droplets right as she rises from the cavern floor
+      if (!sr.eruptBurstSpawned && sr.elapsed >= 40) {
+        sr.eruptBurstSpawned = true;
+        for (let k = 0; k < 34; k++) {
+          const ang = (k / 34) * Math.PI * 2 + (Math.random() - 0.5) * 0.25;
+          const spd = 75 + Math.random() * 145;
+          s.slimeDroplets.push({
+            x: sr.centerX + Math.cos(ang) * (10 + Math.random() * 24),
+            y: sr.centerY + Math.sin(ang) * (8 + Math.random() * 20),
+            vx: Math.cos(ang) * spd,
+            vy: Math.sin(ang) * spd - 55,
+            gravity: 220,
+            radius: 3.2 + Math.random() * 4.5,
+            elapsed: 0,
+            duration: 520 + Math.random() * 340,
+            tint: k % 3 === 0 ? 'chartreuse' : k % 2 === 0 ? 'lime' : 'emerald',
+            kind: 'drop',
+          });
+        }
+      }
+
+      // Spawn corrosive roar spray + rising spores at the roar onset (480ms)
+      if (!sr.roarBurstSpawned && sr.elapsed >= 480) {
+        sr.roarBurstSpawned = true;
+        for (let k = 0; k < 28; k++) {
+          const ang = (k / 28) * Math.PI * 2 + (Math.random() - 0.5) * 0.18;
+          const spd = 125 + Math.random() * 210;
+          s.slimeDroplets.push({
+            x: sr.centerX + Math.cos(ang) * baseR * 0.55,
+            y: sr.centerY + Math.sin(ang) * baseR * 0.55,
+            vx: Math.cos(ang) * spd,
+            vy: Math.sin(ang) * spd - 20,
+            gravity: 120,
+            radius: 2.8 + Math.random() * 3.8,
+            elapsed: 0,
+            duration: 620 + Math.random() * 360,
+            tint: k % 4 === 0 ? 'gold' : k % 2 === 0 ? 'chartreuse' : 'lime',
+            kind: 'drop',
+          });
+        }
+        for (let b = 0; b < 18; b++) {
+          s.slimeDroplets.push({
+            x: sr.centerX + (Math.random() - 0.5) * sr.sizePx * 1.4,
+            y: sr.centerY + (Math.random() - 0.5) * sr.sizePx * 1.1,
+            vx: (Math.random() - 0.5) * 28,
+            vy: -(38 + Math.random() * 58),
+            gravity: -16,
+            radius: 3.5 + Math.random() * 4.8,
+            elapsed: 0,
+            duration: 760 + Math.random() * 460,
+            tint: b % 3 === 0 ? 'gold' : 'chartreuse',
+            kind: 'bubble',
+          });
+        }
+      }
+
+      // Churning corrosive emergence pool beneath boss footprint
+      ctx.save();
+      const poolAlpha = u < 0.16 ? u / 0.16 : Math.max(0, 1 - (u - 0.16) / 0.84);
+      const poolR = baseR * (0.95 + Math.sin(u * Math.PI) * 0.58);
+      const poolGrad = ctx.createRadialGradient(
+        sr.centerX,
+        sr.centerY,
+        6,
+        sr.centerX,
+        sr.centerY,
+        poolR
+      );
+      poolGrad.addColorStop(0, `rgba(217, 249, 157, ${poolAlpha * 0.72})`);
+      poolGrad.addColorStop(0.45, `rgba(74, 222, 128, ${poolAlpha * 0.52})`);
+      poolGrad.addColorStop(0.8, `rgba(22, 101, 52, ${poolAlpha * 0.36})`);
+      poolGrad.addColorStop(1, 'rgba(6, 40, 22, 0)');
+      ctx.fillStyle = poolGrad;
+      ctx.beginPath();
+      ctx.ellipse(sr.centerX, sr.centerY + 6, poolR * 1.12, poolR * 0.88, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Three staggered ultrasonic roar shockwaves sweeping across the arena
+      const waveStartsMs = [480, 740, 1020];
+      const waveDurationsMs = [920, 860, 820];
+      ctx.globalCompositeOperation = 'lighter';
+      for (let w = 0; w < waveStartsMs.length; w++) {
+        const wElapsed = sr.elapsed - waveStartsMs[w];
+        if (wElapsed < 0 || wElapsed > waveDurationsMs[w]) continue;
+        const wu = wElapsed / waveDurationsMs[w];
+        const eased = 1 - Math.pow(1 - wu, 2.2);
+        const wAlpha = Math.max(0, Math.sin(Math.min(1, wu * 4) * (Math.PI / 2)) * (1 - wu));
+        const ringR = baseR * 0.45 + eased * (255 + w * 48);
+
+        ctx.strokeStyle =
+          w === 0
+            ? `rgba(190, 242, 100, ${wAlpha * 0.92})`
+            : w === 1
+            ? `rgba(74, 222, 128, ${wAlpha * 0.78})`
+            : `rgba(250, 204, 21, ${wAlpha * 0.55})`;
+        ctx.lineWidth = Math.max(1.5, (9 - w * 2) * (1 - wu * 0.65));
+        ctx.shadowColor = w === 2 ? '#facc15' : '#4ade80';
+        ctx.shadowBlur = 22;
+        ctx.beginPath();
+        ctx.arc(sr.centerX, sr.centerY, ringR, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Inner sonic distortion echo ring
+        if (wu < 0.75) {
+          ctx.strokeStyle = `rgba(236, 252, 203, ${wAlpha * 0.48})`;
+          ctx.lineWidth = Math.max(1, 3 * (1 - wu));
+          ctx.beginPath();
+          ctx.arc(sr.centerX, sr.centerY, Math.max(12, ringR - 18), 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+
+      // Roar radial aura streaks around Slime Mãe during the climax (480ms - 1350ms)
+      if (sr.elapsed >= 480 && sr.elapsed <= 1350) {
+        const rU = (sr.elapsed - 480) / 870;
+        const rAlpha = Math.sin(rU * Math.PI) * 0.75;
+        const rayCount = 16;
+        for (let r = 0; r < rayCount; r++) {
+          const ang = (r / rayCount) * Math.PI * 2 + rU * 0.35;
+          const inner = baseR * 0.75;
+          const outer = baseR * (1.4 + rU * 1.45) + (r % 2 === 0 ? 18 : 0);
+          ctx.strokeStyle = `rgba(190, 242, 100, ${rAlpha * 0.72})`;
+          ctx.lineWidth = r % 2 === 0 ? 3.2 : 1.8;
+          ctx.beginPath();
+          ctx.moveTo(sr.centerX + Math.cos(ang) * inner, sr.centerY + Math.sin(ang) * inner);
+          ctx.lineTo(sr.centerX + Math.cos(ang) * outer, sr.centerY + Math.sin(ang) * outer);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    // 28C. KNIGHT: ESTANDARTE DA GLÓRIA (SPEAR-BANNER THROW + 6M RADIANT JUSTICE SHOCKWAVE)
+    for (let i = s.bannerOfGlories.length - 1; i >= 0; i--) {
+      const bg = s.bannerOfGlories[i];
+      bg.elapsed += dtMs;
+      if (bg.elapsed >= bg.duration) {
+        s.bannerOfGlories.splice(i, 1);
+        continue;
+      }
+
+      ctx.save();
+      if (bg.elapsed < bg.travelMs) {
+        // Phase 1: High-arc war spear with crimson/gold pennant hurtling toward target
+        const t = Math.min(1, bg.elapsed / bg.travelMs);
+        const ctrlX = (bg.startX + bg.targetX) / 2;
+        const ctrlY = Math.min(bg.startY, bg.targetY) - 96;
+        const pt = evalQuadBezier(t, bg.startX, bg.startY, ctrlX, ctrlY, bg.targetX, bg.targetY);
+        const angle = Math.atan2(pt.dy, pt.dx);
+
+        // Golden streak trail along the arc
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `rgba(253, 224, 71, ${0.55 * (1 - t * 0.25)})`;
+        ctx.lineWidth = 4;
+        ctx.shadowColor = '#facc15';
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        const trailSteps = 8;
+        for (let k = 0; k <= trailSteps; k++) {
+          const st = Math.max(0, t - (k / trailSteps) * 0.28);
+          const spt = evalQuadBezier(st, bg.startX, bg.startY, ctrlX, ctrlY, bg.targetX, bg.targetY);
+          if (k === 0) ctx.moveTo(spt.x, spt.y);
+          else ctx.lineTo(spt.x, spt.y);
+        }
+        ctx.stroke();
+
+        // Draw Spear + Banner aligned with flight tangent
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.translate(pt.x, pt.y);
+        ctx.rotate(angle);
+
+        // Crimson-and-gold pennant trailing behind spearhead
+        ctx.fillStyle = '#b91c1c';
+        ctx.strokeStyle = '#fde047';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(6, 0);
+        ctx.lineTo(-22, -13);
+        ctx.lineTo(-16, -5);
+        ctx.lineTo(-26, -1);
+        ctx.lineTo(6, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Steel/gold shaft
+        ctx.strokeStyle = '#fef08a';
+        ctx.lineWidth = 3.2;
+        ctx.beginPath();
+        ctx.moveTo(-26, 0);
+        ctx.lineTo(14, 0);
+        ctx.stroke();
+
+        // Gleaming spearhead tip
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(24, 0);
+        ctx.lineTo(11, -5.5);
+        ctx.lineTo(14, 0);
+        ctx.lineTo(11, 5.5);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        // Phase 2: Spear planted! Blazing golden justice shockwave & 6m radiant perimeter
+        const impElapsed = bg.elapsed - bg.travelMs;
+        const impDur = bg.duration - bg.travelMs;
+        const iu = Math.min(1, impElapsed / impDur);
+        const eased = 1 - Math.pow(1 - iu, 2.6);
+
+        if (!bg.impactBurstSpawned) {
+          bg.impactBurstSpawned = true;
+          for (let m = 0; m < 28; m++) {
+            const ang = (m / 28) * Math.PI * 2 + (Math.random() - 0.5) * 0.2;
+            const dist = Math.random() * bg.radiusPx * 0.92;
+            s.holyMotes.push({
+              x: bg.targetX + Math.cos(ang) * dist,
+              y: bg.targetY + Math.sin(ang) * dist,
+              vx: Math.cos(ang) * (14 + Math.random() * 26),
+              vy: -(32 + Math.random() * 58),
+              size: 2.2 + Math.random() * 3.0,
+              elapsed: 0,
+              duration: 580 + Math.random() * 440,
+              tint: m % 3 === 0 ? 'ivory' : 'gold',
+            });
+          }
+        }
+
+        ctx.globalCompositeOperation = 'lighter';
+
+        // Vertical golden justice light pillar at planted spear
+        if (iu < 0.62) {
+          const pillarAlpha = Math.sin((iu / 0.62) * Math.PI) * 0.82;
+          const pillarW = 24 * (1 - iu * 0.5);
+          const pillarGrad = ctx.createLinearGradient(
+            bg.targetX - pillarW,
+            bg.targetY,
+            bg.targetX + pillarW,
+            bg.targetY
+          );
+          pillarGrad.addColorStop(0, 'rgba(250, 204, 21, 0)');
+          pillarGrad.addColorStop(0.5, `rgba(254, 249, 195, ${pillarAlpha})`);
+          pillarGrad.addColorStop(1, 'rgba(250, 204, 21, 0)');
+          ctx.fillStyle = pillarGrad;
+          ctx.fillRect(bg.targetX - pillarW, bg.targetY - 190, pillarW * 2, 196);
+        }
+
+        // Expanding 6.0m golden radiant field fill
+        const fieldR = Math.max(12, bg.radiusPx * eased);
+        const fieldAlpha = (1 - iu) * 0.42;
+        const fieldGrad = ctx.createRadialGradient(
+          bg.targetX,
+          bg.targetY,
+          8,
+          bg.targetX,
+          bg.targetY,
+          fieldR
+        );
+        fieldGrad.addColorStop(0, `rgba(254, 249, 195, ${fieldAlpha * 1.15})`);
+        fieldGrad.addColorStop(0.55, `rgba(250, 204, 21, ${fieldAlpha * 0.62})`);
+        fieldGrad.addColorStop(0.88, `rgba(217, 119, 6, ${fieldAlpha * 0.4})`);
+        fieldGrad.addColorStop(1, 'rgba(217, 119, 6, 0)');
+        ctx.fillStyle = fieldGrad;
+        ctx.beginPath();
+        ctx.arc(bg.targetX, bg.targetY, fieldR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Outer blazing justice shockwave ring
+        const ringAlpha = Math.max(0, 1 - iu);
+        ctx.strokeStyle = `rgba(254, 240, 138, ${ringAlpha * 0.95})`;
+        ctx.lineWidth = Math.max(1.5, 6.5 * (1 - iu * 0.65));
+        ctx.shadowColor = '#facc15';
+        ctx.shadowBlur = 22;
+        ctx.beginPath();
+        ctx.arc(bg.targetX, bg.targetY, fieldR, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Secondary trailing crimson-gold justice ring
+        if (iu > 0.08) {
+          const r2 = Math.max(8, bg.radiusPx * Math.min(1, eased * 0.84));
+          ctx.strokeStyle = `rgba(251, 146, 60, ${ringAlpha * 0.72})`;
+          ctx.lineWidth = Math.max(1, 3.2 * (1 - iu));
+          ctx.setLineDash([12, 8]);
+          ctx.beginPath();
+          ctx.arc(bg.targetX, bg.targetY, r2, iu * 1.8, iu * 1.8 + Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+      ctx.restore();
+    }
+
+    // 29. Shared Slime Droplets & Rising Acid Bubbles
+    for (let i = s.slimeDroplets.length - 1; i >= 0; i--) {
+      const d = s.slimeDroplets[i];
+      d.elapsed += dtMs;
+      if (d.elapsed >= d.duration) {
+        s.slimeDroplets.splice(i, 1);
+        continue;
+      }
+
+      const dtSec = dtMs / 1000;
+      const u = d.elapsed / d.duration;
+      d.vy += d.gravity * dtSec;
+      d.vx *= d.kind === 'drop' ? 0.96 : 0.985;
+      d.x += d.vx * dtSec;
+      d.y += d.vy * dtSec;
+
+      const alpha = Math.max(0, 1 - Math.pow(u, 1.5));
+      ctx.save();
+      if (d.kind === 'bubble') {
+        const r = d.radius * (0.7 + u * 0.65);
+        ctx.strokeStyle =
+          d.tint === 'gold'
+            ? `rgba(254, 240, 138, ${alpha * 0.9})`
+            : `rgba(217, 249, 157, ${alpha * 0.88})`;
+        ctx.fillStyle = `rgba(132, 204, 22, ${alpha * 0.32})`;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.7})`;
+        ctx.beginPath();
+        ctx.arc(d.x - r * 0.32, d.y - r * 0.32, Math.max(0.8, r * 0.25), 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        const r = Math.max(1, d.radius * (1 - u * 0.45));
+        ctx.fillStyle =
+          d.tint === 'gold'
+            ? `rgba(253, 224, 71, ${alpha})`
+            : d.tint === 'chartreuse'
+            ? `rgba(217, 249, 157, ${alpha})`
+            : d.tint === 'lime'
+            ? `rgba(163, 230, 53, ${alpha})`
+            : `rgba(34, 197, 94, ${alpha})`;
+        ctx.shadowColor = '#84cc16';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
     ctx.restore();
 
     if (hasActiveEffects()) {
@@ -2917,6 +4061,149 @@ export const SpellVfxCanvas = forwardRef<SpellVfxCanvasHandle>(function SpellVfx
         ensureLoop();
       },
 
+      playSlimeSummon: ({ startX, startY, endX, endY, travelMs = 340 }) => {
+        const s = stateRef.current;
+        const dist = Math.hypot(endX - startX, endY - startY);
+        s.slimeSummons.push({
+          startX,
+          startY,
+          endX,
+          endY,
+          arcHeight: Math.max(38, Math.min(72, dist * 0.48 + 26)),
+          travelMs,
+          totalDuration: travelMs + 560,
+          elapsed: 0,
+          landed: false,
+          wobbleSeed: Math.random() * Math.PI * 2,
+        });
+        ensureLoop();
+      },
+
+      playSlimeAcidSlam: ({ startX, startY, targetX, targetY, isCritical, didHit }) => {
+        const s = stateRef.current;
+        const angle = Math.atan2(targetY - startY, targetX - startX);
+        s.slimeAcidSlams.push({
+          startX,
+          startY,
+          targetX,
+          targetY,
+          angle,
+          isCritical,
+          didHit,
+          impactSpawned: false,
+          elapsed: 0,
+          duration: isCritical ? 760 : 640,
+          waveSeed: Math.random() * Math.PI * 2,
+        });
+        ensureLoop();
+      },
+
+      playSlimeMoveTrail: ({ x, y, radius, angleRad, isBoss }) => {
+        const s = stateRef.current;
+        const lobeCount = isBoss ? 4 : 2;
+        const lobeOffsets: Array<{ dx: number; dy: number; r: number }> = [];
+        for (let k = 0; k < lobeCount; k++) {
+          const ang = (k / lobeCount) * Math.PI * 2 + Math.random() * 0.8;
+          const dist = radius * (0.45 + Math.random() * 0.45);
+          lobeOffsets.push({
+            dx: Math.cos(ang) * dist,
+            dy: Math.sin(ang) * dist * 0.72,
+            r: radius * (0.2 + Math.random() * 0.2),
+          });
+        }
+
+        s.slimeTrails.push({
+          x,
+          y,
+          radius,
+          angleRad,
+          isBoss,
+          elapsed: 0,
+          duration: isBoss ? 1450 : 950,
+          lobeOffsets,
+        });
+
+        // Tiny bubbling beads and trailing ooze droplets off the slime's wake
+        const splashDrops = isBoss ? 5 : 2;
+        for (let i = 0; i < splashDrops; i++) {
+          const ang = angleRad + Math.PI + (Math.random() - 0.5) * 1.9;
+          const spd = (isBoss ? 34 : 22) + Math.random() * (isBoss ? 54 : 32);
+          s.slimeDroplets.push({
+            x: x + (Math.random() - 0.5) * radius * 0.8,
+            y: y + (Math.random() - 0.5) * radius * 0.6,
+            vx: Math.cos(ang) * spd,
+            vy: Math.sin(ang) * spd - 14,
+            gravity: 160,
+            radius: (isBoss ? 2.4 : 1.6) + Math.random() * 2.2,
+            elapsed: 0,
+            duration: 320 + Math.random() * 240,
+            tint: i % 2 === 0 ? 'lime' : 'emerald',
+            kind: 'drop',
+          });
+        }
+        const bubbleCount = isBoss ? 3 : 1;
+        for (let b = 0; b < bubbleCount; b++) {
+          s.slimeDroplets.push({
+            x: x + (Math.random() - 0.5) * radius * 1.1,
+            y: y + (Math.random() - 0.5) * radius * 0.7,
+            vx: (Math.random() - 0.5) * 14,
+            vy: -(18 + Math.random() * 26),
+            gravity: -10,
+            radius: (isBoss ? 2.8 : 2.0) + Math.random() * 2.4,
+            elapsed: 0,
+            duration: 460 + Math.random() * 280,
+            tint: 'chartreuse',
+            kind: 'bubble',
+          });
+        }
+        ensureLoop();
+      },
+
+      playSlimeStackCollapse: ({ bossX, bossY, targetX, targetY, adjacentAllies }) => {
+        const s = stateRef.current;
+        s.slimeStackCollapses.push({
+          bossX,
+          bossY,
+          targetX,
+          targetY,
+          adjacentAllies,
+          elapsed: 0,
+          duration: 860,
+          burstSpawned: false,
+        });
+        ensureLoop();
+      },
+
+      playSlimeMotherSpawnRoar: ({ centerX, centerY, sizePx }) => {
+        const s = stateRef.current;
+        s.slimeSpawnRoars.push({
+          centerX,
+          centerY,
+          sizePx,
+          elapsed: 0,
+          duration: 2100,
+          eruptBurstSpawned: false,
+          roarBurstSpawned: false,
+        });
+        ensureLoop();
+      },
+
+      playBannerOfGlory: ({ startX, startY, targetX, targetY, radiusPx }) => {
+        const s = stateRef.current;
+        s.bannerOfGlories.push({
+          startX,
+          startY,
+          targetX,
+          targetY,
+          radiusPx,
+          travelMs: 340,
+          elapsed: 0,
+          duration: 1380,
+          impactBurstSpawned: false,
+        });
+        ensureLoop();
+      },
+
       clear: () => {
         const s = stateRef.current;
         s.castSigils = [];
@@ -2944,6 +4231,13 @@ export const SpellVfxCanvas = forwardRef<SpellVfxCanvasHandle>(function SpellVfx
         s.shadowWisps = [];
         s.sprintRings = [];
         s.lethalityStrikes = [];
+        s.slimeSummons = [];
+        s.slimeAcidSlams = [];
+        s.slimeDroplets = [];
+        s.slimeTrails = [];
+        s.slimeStackCollapses = [];
+        s.slimeSpawnRoars = [];
+        s.bannerOfGlories = [];
         if (rafRef.current !== null) {
           cancelAnimationFrame(rafRef.current);
           rafRef.current = null;

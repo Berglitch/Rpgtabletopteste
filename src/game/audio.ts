@@ -11,10 +11,22 @@ class TacticalAudioEngine {
 
   private isMuted = false;
   private isMusicEnabled = true;
+  private musicVolume = 0.45;
+  private sfxVolume = 0.95;
   private isMusicPlaying = false;
+  private activeMusicTrack: 'default' | 'slime_mother' = 'default';
+  private customBgmAudio: HTMLAudioElement | null = null;
+  private customBgmFadeTimer: ReturnType<typeof setInterval> | null = null;
+  private pendingGestureUnlock = false;
   private musicSchedulerTimer: ReturnType<typeof setTimeout> | null = null;
   private currentStep = 0;
   private nextStepTime = 0;
+
+  private readonly SLIME_MOTHER_BGM_URL = `${
+    import.meta.env.BASE_URL.endsWith('/')
+      ? import.meta.env.BASE_URL
+      : `${import.meta.env.BASE_URL}/`
+  }assets/audio/slime-mother-theme.mp3`;
 
   private readonly BPM = 126;
   private readonly STEP_DURATION = 60 / 126 / 2;
@@ -52,6 +64,8 @@ class TacticalAudioEngine {
       const prefs = loadAudioPrefs();
       this.isMusicEnabled = prefs.musicEnabled;
       this.isMuted = prefs.isMuted;
+      this.musicVolume = prefs.musicVolume;
+      this.sfxVolume = prefs.sfxVolume;
     }
   }
 
@@ -59,6 +73,8 @@ class TacticalAudioEngine {
     return {
       musicEnabled: this.isMusicEnabled,
       isMuted: this.isMuted,
+      musicVolume: this.musicVolume,
+      sfxVolume: this.sfxVolume,
     };
   }
 
@@ -82,12 +98,12 @@ class TacticalAudioEngine {
         reverbWet.connect(this.masterGain);
 
         this.musicGain = this.ctx.createGain();
-        this.musicGain.gain.value = this.isMusicEnabled && !this.isMuted ? 0.45 : 0.0;
+        this.musicGain.gain.value = this.isMusicEnabled && !this.isMuted ? this.musicVolume : 0.0;
         this.musicGain.connect(this.masterGain);
         this.musicGain.connect(this.reverbNode);
 
         this.sfxGain = this.ctx.createGain();
-        this.sfxGain.gain.value = 0.95;
+        this.sfxGain.gain.value = this.sfxVolume;
         this.sfxGain.connect(this.masterGain);
         this.sfxGain.connect(this.reverbNode);
       }
@@ -1048,6 +1064,270 @@ class TacticalAudioEngine {
     });
   }
 
+  public playSlimeSummon(): void {
+    if (this.isMuted) return;
+    this.runWhenReady(() => {
+      if (this.isMuted || !this.ctx || !this.sfxGain) return;
+      const now = this.ctx.currentTime + 0.005;
+
+      // 1. Gelatinous mitotic stretch / bloop launch
+      const launch = this.ctx.createOscillator();
+      launch.type = 'sine';
+      launch.frequency.setValueAtTime(165, now);
+      launch.frequency.exponentialRampToValueAtTime(340, now + 0.14);
+      launch.frequency.exponentialRampToValueAtTime(210, now + 0.28);
+      const lg = this.ctx.createGain();
+      lg.gain.setValueAtTime(0.001, now);
+      lg.gain.linearRampToValueAtTime(0.32, now + 0.04);
+      lg.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+      launch.connect(lg);
+      lg.connect(this.sfxGain);
+      launch.start(now);
+      launch.stop(now + 0.32);
+
+      // 2. Viscous wet split squelch
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = this.createNoiseBuffer(0.34);
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(620, now);
+      bp.frequency.exponentialRampToValueAtTime(1580, now + 0.16);
+      bp.frequency.exponentialRampToValueAtTime(480, now + 0.32);
+      bp.Q.value = 3.1;
+      const ng = this.ctx.createGain();
+      ng.gain.setValueAtTime(0.001, now);
+      ng.gain.linearRampToValueAtTime(0.24, now + 0.05);
+      ng.gain.exponentialRampToValueAtTime(0.001, now + 0.33);
+      noise.connect(bp);
+      bp.connect(ng);
+      ng.connect(this.sfxGain);
+      noise.start(now);
+
+      // 3. Bouncy jelly landing pop (synced with ~340ms touchdown)
+      const landAt = now + 0.33;
+      const pop = this.ctx.createOscillator();
+      pop.type = 'triangle';
+      pop.frequency.setValueAtTime(190, landAt);
+      pop.frequency.exponentialRampToValueAtTime(520, landAt + 0.07);
+      pop.frequency.exponentialRampToValueAtTime(140, landAt + 0.19);
+      const pg = this.ctx.createGain();
+      pg.gain.setValueAtTime(0.001, landAt);
+      pg.gain.linearRampToValueAtTime(0.34, landAt + 0.02);
+      pg.gain.exponentialRampToValueAtTime(0.001, landAt + 0.21);
+      pop.connect(pg);
+      pg.connect(this.sfxGain);
+      pop.start(landAt);
+      pop.stop(landAt + 0.23);
+    });
+  }
+
+  public playSlimeAcidSlam(isCritical = false): void {
+    if (this.isMuted) return;
+    this.runWhenReady(() => {
+      if (this.isMuted || !this.ctx || !this.sfxGain) return;
+      const now = this.ctx.currentTime + 0.005;
+
+      // 1. Wet gelatinous tendril whip snap
+      const whip = this.ctx.createOscillator();
+      whip.type = 'triangle';
+      whip.frequency.setValueAtTime(240, now);
+      whip.frequency.exponentialRampToValueAtTime(isCritical ? 680 : 520, now + 0.09);
+      whip.frequency.exponentialRampToValueAtTime(95, now + 0.24);
+      const wg = this.ctx.createGain();
+      wg.gain.setValueAtTime(0.001, now);
+      wg.gain.linearRampToValueAtTime(isCritical ? 0.36 : 0.28, now + 0.025);
+      wg.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
+      whip.connect(wg);
+      wg.connect(this.sfxGain);
+      whip.start(now);
+      whip.stop(now + 0.28);
+
+      // 2. Heavy wet slap impact thud
+      const slamAt = now + 0.08;
+      const thud = this.ctx.createOscillator();
+      thud.type = 'sine';
+      thud.frequency.setValueAtTime(isCritical ? 160 : 132, slamAt);
+      thud.frequency.exponentialRampToValueAtTime(38, slamAt + 0.26);
+      const tg = this.ctx.createGain();
+      tg.gain.setValueAtTime(0.001, slamAt);
+      tg.gain.linearRampToValueAtTime(isCritical ? 0.56 : 0.44, slamAt + 0.015);
+      tg.gain.exponentialRampToValueAtTime(0.001, slamAt + 0.29);
+      thud.connect(tg);
+      tg.connect(this.sfxGain);
+      thud.start(slamAt);
+      thud.stop(slamAt + 0.31);
+
+      // 3. Corrosive splatter + acid sizzle
+      const splatter = this.ctx.createBufferSource();
+      splatter.buffer = this.createNoiseBuffer(0.38);
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(1250, slamAt);
+      bp.frequency.exponentialRampToValueAtTime(3200, slamAt + 0.1);
+      bp.frequency.exponentialRampToValueAtTime(520, slamAt + 0.34);
+      bp.Q.value = 2.0;
+      const sg = this.ctx.createGain();
+      sg.gain.setValueAtTime(0.001, slamAt);
+      sg.gain.linearRampToValueAtTime(isCritical ? 0.44 : 0.34, slamAt + 0.02);
+      sg.gain.exponentialRampToValueAtTime(0.001, slamAt + 0.36);
+      splatter.connect(bp);
+      bp.connect(sg);
+      sg.connect(this.sfxGain);
+      splatter.start(slamAt);
+    });
+  }
+
+  public playSlimeSlideSteps(steps: number, isBoss = true): void {
+    if (this.isMuted || steps <= 0) return;
+    this.runWhenReady(() => {
+      if (this.isMuted || !this.ctx || !this.sfxGain) return;
+      const now = this.ctx.currentTime + 0.005;
+      const interval = isBoss ? 0.135 : 0.11;
+      const clampedSteps = Math.min(steps, 10);
+
+      for (let i = 0; i < clampedSteps; i++) {
+        const t = now + i * interval;
+        const pitchJitter = 0.92 + (i % 3) * 0.08;
+
+        // Wet viscous squelch oscillation
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        const baseFreq = (isBoss ? 125 : 220) * pitchJitter;
+        osc.frequency.setValueAtTime(baseFreq, t);
+        osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.75, t + 0.055);
+        osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.68, t + 0.12);
+
+        const g = this.ctx.createGain();
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.linearRampToValueAtTime(isBoss ? 0.24 : 0.14, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+
+        osc.connect(g);
+        g.connect(this.sfxGain);
+        osc.start(t);
+        osc.stop(t + 0.14);
+
+        // Soft bubbling ooze friction noise
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = this.createNoiseBuffer(0.11);
+        const bp = this.ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.setValueAtTime(isBoss ? 720 * pitchJitter : 1180 * pitchJitter, t);
+        bp.frequency.exponentialRampToValueAtTime(isBoss ? 1280 : 1850, t + 0.09);
+        bp.Q.value = 3.0;
+
+        const ng = this.ctx.createGain();
+        ng.gain.setValueAtTime(0.001, t);
+        ng.gain.linearRampToValueAtTime(isBoss ? 0.14 : 0.08, t + 0.02);
+        ng.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+
+        noise.connect(bp);
+        bp.connect(ng);
+        ng.connect(this.sfxGain);
+        noise.start(t);
+      }
+    });
+  }
+
+  public playStackMarkerTelegraph(): void {
+    if (this.isMuted) return;
+    this.runWhenReady(() => {
+      if (this.isMuted || !this.ctx || !this.sfxGain) return;
+      const now = this.ctx.currentTime + 0.005;
+
+      // Iconic FFXIV-inspired converging golden harmonic pulses (distinct from red Tank Buster)
+      const freqs = [587.33, 739.99, 880.0, 1174.66];
+      freqs.forEach((freq, idx) => {
+        const t = now + idx * 0.085;
+        const osc = this.ctx!.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, t);
+        osc.frequency.exponentialRampToValueAtTime(freq * 1.12, t + 0.14);
+
+        const g = this.ctx!.createGain();
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.linearRampToValueAtTime(0.22, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
+
+        osc.connect(g);
+        g.connect(this.sfxGain!);
+        osc.start(t);
+        osc.stop(t + 0.26);
+      });
+
+      // Warm resonant inward convergence hum
+      const hum = this.ctx.createOscillator();
+      hum.type = 'sine';
+      hum.frequency.setValueAtTime(146.83, now);
+      hum.frequency.exponentialRampToValueAtTime(293.66, now + 0.45);
+      const hg = this.ctx.createGain();
+      hg.gain.setValueAtTime(0.001, now);
+      hg.gain.linearRampToValueAtTime(0.24, now + 0.12);
+      hg.gain.exponentialRampToValueAtTime(0.001, now + 0.62);
+      hum.connect(hg);
+      hg.connect(this.sfxGain);
+      hum.start(now);
+      hum.stop(now + 0.65);
+    });
+  }
+
+  public playStackMarkerBlast(): void {
+    if (this.isMuted) return;
+    this.runWhenReady(() => {
+      if (this.isMuted || !this.ctx || !this.sfxGain) return;
+      const now = this.ctx.currentTime + 0.005;
+
+      // 1. Inward compression sweep
+      const sweep = this.ctx.createOscillator();
+      sweep.type = 'sawtooth';
+      sweep.frequency.setValueAtTime(220, now);
+      sweep.frequency.exponentialRampToValueAtTime(640, now + 0.16);
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(1200, now);
+      const swg = this.ctx.createGain();
+      swg.gain.setValueAtTime(0.001, now);
+      swg.gain.linearRampToValueAtTime(0.22, now + 0.12);
+      swg.gain.exponentialRampToValueAtTime(0.001, now + 0.19);
+      sweep.connect(lp);
+      lp.connect(swg);
+      swg.connect(this.sfxGain);
+      sweep.start(now);
+      sweep.stop(now + 0.2);
+
+      // 2. Massive converging detonation impact
+      const blastAt = now + 0.15;
+      const sub = this.ctx.createOscillator();
+      sub.type = 'sine';
+      sub.frequency.setValueAtTime(165, blastAt);
+      sub.frequency.exponentialRampToValueAtTime(32, blastAt + 0.52);
+      const sg = this.ctx.createGain();
+      sg.gain.setValueAtTime(0.62, blastAt);
+      sg.gain.exponentialRampToValueAtTime(0.001, blastAt + 0.56);
+      sub.connect(sg);
+      sg.connect(this.sfxGain);
+      sub.start(blastAt);
+      sub.stop(blastAt + 0.58);
+
+      // 3. Corrosive acid burst noise
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = this.createNoiseBuffer(0.55);
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(1400, blastAt);
+      bp.frequency.exponentialRampToValueAtTime(380, blastAt + 0.48);
+      bp.Q.value = 1.6;
+      const ng = this.ctx.createGain();
+      ng.gain.setValueAtTime(0.001, blastAt);
+      ng.gain.linearRampToValueAtTime(0.48, blastAt + 0.025);
+      ng.gain.exponentialRampToValueAtTime(0.001, blastAt + 0.52);
+      noise.connect(bp);
+      bp.connect(ng);
+      ng.connect(this.sfxGain);
+      noise.start(blastAt);
+    });
+  }
+
   public playVictoryFanfare(): void {
     if (!this.init() || this.isMuted || !this.ctx || !this.sfxGain) return;
     this.stopBattleMusic();
@@ -1259,18 +1539,381 @@ class TacticalAudioEngine {
     this.musicSchedulerTimer = setTimeout(this.schedulerLoop, 45);
   };
 
-  public startBattleMusic(): void {
+  /**
+   * Monstrous abyssal emergence + viscous roar for Slime Mãe boss presentation (~1.85s).
+   * Combines deep sub-bass growl, dual vocalized formant filters, corrosive bubbling, and floor thud.
+   */
+  public playSlimeMotherRoar(): void {
+    if (this.isMuted) return;
     this.runWhenReady(() => {
-      if (!this.ctx) return;
-      this.stopBattleMusic();
-      this.isMusicPlaying = true;
+      if (this.isMuted || !this.ctx || !this.sfxGain) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      // Master bus for roar with gentle wave-shaper saturation
+      const roarBus = ctx.createGain();
+      roarBus.gain.setValueAtTime(0.001, now);
+      roarBus.gain.linearRampToValueAtTime(0.95, now + 0.14);
+      roarBus.gain.setValueAtTime(0.92, now + 0.85);
+      roarBus.gain.exponentialRampToValueAtTime(0.001, now + 1.85);
+
+      const shaper = ctx.createWaveShaper();
+      const curve = new Float32Array(256);
+      for (let i = 0; i < 256; i++) {
+        const x = (i * 2) / 256 - 1;
+        curve[i] = Math.tanh(x * 2.4);
+      }
+      shaper.curve = curve;
+      shaper.oversample = '2x';
+      roarBus.connect(shaper);
+      shaper.connect(this.sfxGain);
+
+      // 1. Emergence seismic floor thud
+      const thudOsc = ctx.createOscillator();
+      const thudGain = ctx.createGain();
+      thudOsc.type = 'sine';
+      thudOsc.frequency.setValueAtTime(84, now);
+      thudOsc.frequency.exponentialRampToValueAtTime(26, now + 0.42);
+      thudGain.gain.setValueAtTime(0.001, now);
+      thudGain.gain.linearRampToValueAtTime(0.75, now + 0.03);
+      thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.48);
+      thudOsc.connect(thudGain);
+      thudGain.connect(this.sfxGain);
+      thudOsc.start(now);
+      thudOsc.stop(now + 0.5);
+
+      // 2. Dual detuned abyssal vocal growl oscillators with guttural vibrato LFO
+      const lfo = ctx.createOscillator();
+      const lfoGain = ctx.createGain();
+      lfo.type = 'sine';
+      lfo.frequency.setValueAtTime(11, now);
+      lfo.frequency.linearRampToValueAtTime(7.5, now + 1.6);
+      lfoGain.gain.setValueAtTime(14, now);
+      lfo.connect(lfoGain);
+      lfo.start(now);
+      lfo.stop(now + 1.9);
+
+      const growlFilter = ctx.createBiquadFilter();
+      growlFilter.type = 'lowpass';
+      growlFilter.Q.value = 3.2;
+      growlFilter.frequency.setValueAtTime(240, now);
+      growlFilter.frequency.exponentialRampToValueAtTime(920, now + 0.34);
+      growlFilter.frequency.exponentialRampToValueAtTime(190, now + 1.75);
+      growlFilter.connect(roarBus);
+
+      [
+        { type: 'sawtooth' as OscillatorType, start: 82, peak: 138, end: 46, gain: 0.36 },
+        { type: 'sawtooth' as OscillatorType, start: 121, peak: 196, end: 64, gain: 0.24 },
+        { type: 'triangle' as OscillatorType, start: 54, peak: 78, end: 34, gain: 0.42 },
+      ].forEach((voice) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = voice.type;
+        osc.frequency.setValueAtTime(voice.start, now);
+        osc.frequency.exponentialRampToValueAtTime(voice.peak, now + 0.28);
+        osc.frequency.setValueAtTime(voice.peak * 0.94, now + 0.72);
+        osc.frequency.exponentialRampToValueAtTime(voice.end, now + 1.78);
+        lfoGain.connect(osc.frequency);
+
+        g.gain.setValueAtTime(0.001, now);
+        g.gain.linearRampToValueAtTime(voice.gain, now + 0.16);
+        g.gain.setValueAtTime(voice.gain * 0.85, now + 0.82);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 1.8);
+
+        osc.connect(g);
+        g.connect(growlFilter);
+        osc.start(now);
+        osc.stop(now + 1.85);
+      });
+
+      // 3. Dual formant bandpass roar breath ("RAAAAAUUGHHH")
+      const noiseBuf = this.createNoiseBuffer(1.9);
+      [
+        { fStart: 380, fPeak: 720, fEnd: 270, q: 4.5, amp: 0.58 },
+        { fStart: 980, fPeak: 1620, fEnd: 620, q: 5.5, amp: 0.44 },
+      ].forEach((f) => {
+        const nSrc = ctx.createBufferSource();
+        nSrc.buffer = noiseBuf;
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.Q.value = f.q;
+        bp.frequency.setValueAtTime(f.fStart, now);
+        bp.frequency.exponentialRampToValueAtTime(f.fPeak, now + 0.32);
+        bp.frequency.exponentialRampToValueAtTime(f.fEnd, now + 1.75);
+
+        const ng = ctx.createGain();
+        ng.gain.setValueAtTime(0.001, now);
+        ng.gain.linearRampToValueAtTime(f.amp, now + 0.22);
+        ng.gain.setValueAtTime(f.amp * 0.82, now + 0.85);
+        ng.gain.exponentialRampToValueAtTime(0.001, now + 1.82);
+
+        nSrc.connect(bp);
+        bp.connect(ng);
+        ng.connect(roarBus);
+        nSrc.start(now);
+        nSrc.stop(now + 1.86);
+      });
+
+      // 4. Viscous bubbling acid gargle layered underneath the roar
+      for (let b = 0; b < 9; b++) {
+        const bt = now + 0.08 + b * 0.14 + Math.random() * 0.05;
+        const bOsc = ctx.createOscillator();
+        const bGain = ctx.createGain();
+        const baseF = 190 + Math.random() * 240;
+        bOsc.type = 'sine';
+        bOsc.frequency.setValueAtTime(baseF, bt);
+        bOsc.frequency.exponentialRampToValueAtTime(baseF * 2.1, bt + 0.09);
+        bGain.gain.setValueAtTime(0.001, bt);
+        bGain.gain.linearRampToValueAtTime(0.14, bt + 0.02);
+        bGain.gain.exponentialRampToValueAtTime(0.001, bt + 0.11);
+        bOsc.connect(bGain);
+        bGain.connect(this.sfxGain);
+        bOsc.start(bt);
+        bOsc.stop(bt + 0.12);
+      }
+    });
+  }
+
+  /**
+   * Knight "Estandarte da Glória": spear whoosh through air, heavy ground-plant impact at ~340ms,
+   * and heroic radiant justice brass/chime chord expanding across the 6m zone.
+   */
+  public playBannerOfGloryThrow(): void {
+    if (this.isMuted) return;
+    this.runWhenReady(() => {
+      if (this.isMuted || !this.ctx || !this.sfxGain) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      // 1. Spear throw air whistle (0s -> 0.34s)
+      const noiseBuf = this.createNoiseBuffer(0.42);
+      const whooshSrc = ctx.createBufferSource();
+      whooshSrc.buffer = noiseBuf;
+      const whooshBp = ctx.createBiquadFilter();
+      whooshBp.type = 'bandpass';
+      whooshBp.Q.value = 3.2;
+      whooshBp.frequency.setValueAtTime(620, now);
+      whooshBp.frequency.exponentialRampToValueAtTime(1950, now + 0.18);
+      whooshBp.frequency.exponentialRampToValueAtTime(420, now + 0.35);
+      const whooshGain = ctx.createGain();
+      whooshGain.gain.setValueAtTime(0.001, now);
+      whooshGain.gain.linearRampToValueAtTime(0.32, now + 0.1);
+      whooshGain.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
+      whooshSrc.connect(whooshBp);
+      whooshBp.connect(whooshGain);
+      whooshGain.connect(this.sfxGain);
+      whooshSrc.start(now);
+      whooshSrc.stop(now + 0.38);
+
+      // 2. Heavy spear-plant ground thud + metallic ring at 0.34s
+      const plantT = now + 0.34;
+      const thudOsc = ctx.createOscillator();
+      const thudGain = ctx.createGain();
+      thudOsc.type = 'sine';
+      thudOsc.frequency.setValueAtTime(135, plantT);
+      thudOsc.frequency.exponentialRampToValueAtTime(34, plantT + 0.32);
+      thudGain.gain.setValueAtTime(0.001, plantT);
+      thudGain.gain.linearRampToValueAtTime(0.75, plantT + 0.015);
+      thudGain.gain.exponentialRampToValueAtTime(0.001, plantT + 0.36);
+      thudOsc.connect(thudGain);
+      thudGain.connect(this.sfxGain);
+      thudOsc.start(plantT);
+      thudOsc.stop(plantT + 0.38);
+
+      // Steel shaft impact clang
+      [680, 1140, 1790].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, plantT);
+        osc.frequency.exponentialRampToValueAtTime(freq * 0.94, plantT + 0.28);
+        g.gain.setValueAtTime(0.001, plantT);
+        g.gain.linearRampToValueAtTime(0.22 / (idx + 1), plantT + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.001, plantT + 0.3);
+        osc.connect(g);
+        g.connect(this.sfxGain!);
+        osc.start(plantT);
+        osc.stop(plantT + 0.32);
+      });
+
+      // 3. Radiant Justice fanfare chord (D4 - A4 - D5 - F#5) shimmering outward
+      [293.66, 440.0, 587.33, 739.99].forEach((freq, idx) => {
+        const t = plantT + 0.03 + idx * 0.035;
+        const osc = ctx.createOscillator();
+        const filter = ctx.createBiquadFilter();
+        const g = ctx.createGain();
+        osc.type = idx < 2 ? 'sawtooth' : 'triangle';
+        osc.frequency.setValueAtTime(freq, t);
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(2200, t);
+        filter.frequency.exponentialRampToValueAtTime(860, t + 0.85);
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.linearRampToValueAtTime(idx < 2 ? 0.14 : 0.12, t + 0.05);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.92);
+        osc.connect(filter);
+        filter.connect(g);
+        g.connect(this.sfxGain!);
+        osc.start(t);
+        osc.stop(t + 0.96);
+      });
+    });
+  }
+
+  /** Crisp golden ward chime when Estandarte da Glória grants +10 Shield at turn start. */
+  public playJusticeShieldChime(): void {
+    if (this.isMuted) return;
+    this.runWhenReady(() => {
+      if (this.isMuted || !this.ctx || !this.sfxGain) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+      [587.33, 880.0, 1174.66].forEach((freq, idx) => {
+        const t = now + idx * 0.055;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, t);
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.linearRampToValueAtTime(0.16, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+        osc.connect(g);
+        g.connect(this.sfxGain!);
+        osc.start(t);
+        osc.stop(t + 0.48);
+      });
+    });
+  }
+
+  private getTargetCustomBgmVolume(): number {
+    if (!this.isMusicEnabled || this.isMuted) return 0;
+    return Math.max(0, Math.min(1, this.musicVolume));
+  }
+
+  private clearCustomBgmFade(): void {
+    if (this.customBgmFadeTimer) {
+      clearInterval(this.customBgmFadeTimer);
+      this.customBgmFadeTimer = null;
+    }
+  }
+
+  private syncCustomBgmVolume(): void {
+    if (!this.customBgmAudio) return;
+    this.clearCustomBgmFade();
+    const target = this.getTargetCustomBgmVolume();
+    this.customBgmAudio.volume = target;
+    if (
+      this.isMusicPlaying &&
+      this.activeMusicTrack === 'slime_mother' &&
+      target > 0 &&
+      this.customBgmAudio.paused
+    ) {
+      void this.customBgmAudio.play().catch(() => {});
+    }
+  }
+
+  private startCustomSlimeBgm(): void {
+    if (typeof window === 'undefined') return;
+    this.clearCustomBgmFade();
+
+    if (!this.customBgmAudio) {
+      const audio = new Audio(this.SLIME_MOTHER_BGM_URL);
+      audio.loop = true;
+      audio.preload = 'auto';
+      audio.addEventListener('error', () => {
+        if (this.isMusicPlaying && this.activeMusicTrack === 'slime_mother') {
+          this.startBattleMusic('default');
+        }
+      });
+      this.customBgmAudio = audio;
+    }
+
+    const audio = this.customBgmAudio;
+    audio.pause();
+    try {
+      audio.currentTime = 0;
+    } catch {
+      // Ignore if metadata not yet loaded
+    }
+
+    const targetVol = this.getTargetCustomBgmVolume();
+    audio.volume = 0;
+
+    const beginFadeIn = () => {
+      this.clearCustomBgmFade();
+      const dest = this.getTargetCustomBgmVolume();
+      if (dest <= 0) {
+        audio.volume = 0;
+        return;
+      }
+      const steps = 14;
+      let step = 0;
+      this.customBgmFadeTimer = setInterval(() => {
+        if (!this.isMusicPlaying || this.activeMusicTrack !== 'slime_mother') {
+          this.clearCustomBgmFade();
+          return;
+        }
+        step++;
+        const liveTarget = this.getTargetCustomBgmVolume();
+        audio.volume = Math.min(liveTarget, (step / steps) * liveTarget);
+        if (step >= steps) {
+          this.clearCustomBgmFade();
+        }
+      }, 50);
+    };
+
+    const tryPlay = () => {
+      const playPromise = audio.play();
+      if (playPromise) {
+        playPromise
+          .then(() => {
+            beginFadeIn();
+          })
+          .catch(() => {
+            // Browser autoplay blocked: attach one-time unlock on next interaction
+            if (!this.pendingGestureUnlock) {
+              this.pendingGestureUnlock = true;
+              const unlock = () => {
+                this.pendingGestureUnlock = false;
+                window.removeEventListener('pointerdown', unlock);
+                window.removeEventListener('keydown', unlock);
+                if (this.isMusicPlaying && this.activeMusicTrack === 'slime_mother') {
+                  void audio
+                    .play()
+                    .then(() => beginFadeIn())
+                    .catch(() => {});
+                }
+              };
+              window.addEventListener('pointerdown', unlock, { once: true });
+              window.addEventListener('keydown', unlock, { once: true });
+            }
+          });
+      } else if (targetVol > 0) {
+        beginFadeIn();
+      }
+    };
+
+    tryPlay();
+  }
+
+  public startBattleMusic(track: 'default' | 'slime_mother' = 'default'): void {
+    this.stopBattleMusic();
+    this.activeMusicTrack = track;
+    this.isMusicPlaying = true;
+
+    if (track === 'slime_mother') {
+      this.init();
+      this.startCustomSlimeBgm();
+      return;
+    }
+
+    this.runWhenReady(() => {
+      if (!this.ctx || !this.isMusicPlaying || this.activeMusicTrack !== 'default') return;
       this.currentStep = 0;
       this.nextStepTime = this.ctx.currentTime + 0.12;
       if (this.musicGain) {
         this.musicGain.gain.cancelScheduledValues(this.ctx.currentTime);
         this.musicGain.gain.setValueAtTime(0.01, this.ctx.currentTime);
         this.musicGain.gain.linearRampToValueAtTime(
-          this.isMusicEnabled && !this.isMuted ? 0.45 : 0.0,
+          this.isMusicEnabled && !this.isMuted ? this.musicVolume : 0.0,
           this.ctx.currentTime + 0.6
         );
       }
@@ -1280,6 +1923,15 @@ class TacticalAudioEngine {
 
   public stopBattleMusic(): void {
     this.isMusicPlaying = false;
+    this.clearCustomBgmFade();
+    if (this.customBgmAudio) {
+      this.customBgmAudio.pause();
+      try {
+        this.customBgmAudio.currentTime = 0;
+      } catch {
+        // Ignore
+      }
+    }
     if (this.musicSchedulerTimer) {
       clearTimeout(this.musicSchedulerTimer);
       this.musicSchedulerTimer = null;
@@ -1298,8 +1950,12 @@ class TacticalAudioEngine {
     if (this.ctx && this.musicGain) {
       const now = this.ctx.currentTime;
       this.musicGain.gain.cancelScheduledValues(now);
-      this.musicGain.gain.setValueAtTime(this.isMusicEnabled && !this.isMuted ? 0.45 : 0.0, now);
+      this.musicGain.gain.setValueAtTime(
+        this.isMusicEnabled && !this.isMuted ? this.musicVolume : 0.0,
+        now
+      );
     }
+    this.syncCustomBgmVolume();
     const prefs = this.getPrefs();
     saveAudioPrefs(prefs);
     return prefs;
@@ -1312,6 +1968,48 @@ class TacticalAudioEngine {
       const now = this.ctx.currentTime;
       this.masterGain.gain.cancelScheduledValues(now);
       this.masterGain.gain.setValueAtTime(this.isMuted ? 0.0 : 0.92, now);
+    }
+    if (this.ctx && this.musicGain) {
+      const now = this.ctx.currentTime;
+      this.musicGain.gain.cancelScheduledValues(now);
+      this.musicGain.gain.setValueAtTime(
+        this.isMusicEnabled && !this.isMuted ? this.musicVolume : 0.0,
+        now
+      );
+    }
+    this.syncCustomBgmVolume();
+    const prefs = this.getPrefs();
+    saveAudioPrefs(prefs);
+    return prefs;
+  }
+
+  public setMusicVolume(volume: number): AudioPrefs {
+    this.init();
+    this.musicVolume = Math.max(0, Math.min(1, Number(volume.toFixed(2))));
+    if (this.musicVolume > 0 && !this.isMusicEnabled) {
+      this.isMusicEnabled = true;
+    }
+    if (this.ctx && this.musicGain) {
+      const now = this.ctx.currentTime;
+      this.musicGain.gain.cancelScheduledValues(now);
+      this.musicGain.gain.setValueAtTime(
+        this.isMusicEnabled && !this.isMuted ? this.musicVolume : 0.0,
+        now
+      );
+    }
+    this.syncCustomBgmVolume();
+    const prefs = this.getPrefs();
+    saveAudioPrefs(prefs);
+    return prefs;
+  }
+
+  public setSfxVolume(volume: number): AudioPrefs {
+    this.init();
+    this.sfxVolume = Math.max(0, Math.min(1, Number(volume.toFixed(2))));
+    if (this.ctx && this.sfxGain) {
+      const now = this.ctx.currentTime;
+      this.sfxGain.gain.cancelScheduledValues(now);
+      this.sfxGain.gain.setValueAtTime(this.sfxVolume, now);
     }
     const prefs = this.getPrefs();
     saveAudioPrefs(prefs);

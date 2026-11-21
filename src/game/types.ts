@@ -184,6 +184,9 @@ export interface PendingAttack {
   isHeavyBlow: boolean;
   isTankBuster?: boolean;
   isLeapSlam?: boolean;
+  isStackMarker?: boolean;
+  stackAdjacentAllies?: number;
+  stackParticipants?: number;
   poisonChance?: number;
   poisonDamagePct?: number;
   poisonRounds?: number;
@@ -227,6 +230,15 @@ export interface EnemyLeapSlamSkill {
   magicDamage: number;
   poisonChance: number;
   cooldown: number;
+}
+
+export interface EnemyStackMarkerSkill {
+  id: string;
+  name: string;
+  baseMaxDamage: number;
+  chargeRounds: number;
+  cooldown: number;
+  ignoresTaunt: boolean;
 }
 
 export interface CombatMinion {
@@ -281,6 +293,8 @@ export interface CombatPlayer {
   arcaneArmorTurns: number;
   sacredShieldHp: number;
   sacredShieldTurns: number;
+  bannerShieldHp: number;
+  bannerShieldTurns: number;
   regenerationTurns: number;
   regenerationHealPerTurn: number;
   poisonTurns: number;
@@ -336,12 +350,16 @@ export interface CombatEnemy {
   tankBusterTargetStartPos: GridPos | null;
   tankBusterStartDist: number;
   leapSlamCooldown: number;
+  stackMarkerCooldown: number;
+  stackMarkerCharging: boolean;
+  stackMarkerTarget: 'player' | string | null;
   summonChance: number;
   maxMinions: number;
   skills: {
     heavyBlow?: EnemyHeavyBlowSkill;
     tankBuster?: EnemyTankBusterSkill;
     leapSlam?: EnemyLeapSlamSkill;
+    stackMarker?: EnemyStackMarkerSkill;
   };
   dexterity: number;
   x: number;
@@ -370,6 +388,14 @@ export interface CombatLogEntry {
 
 export type CombatOutcome = 'ongoing' | 'victory' | 'defeat';
 
+export interface PlantedBannerState {
+  x: number;
+  y: number;
+  remainingRounds: number;
+  radiusMeters: number;
+  shieldPerTurn: number;
+}
+
 export interface CombatState {
   player: CombatPlayer;
   enemy: CombatEnemy;
@@ -382,6 +408,8 @@ export interface CombatState {
   isFireBreathModeActive: boolean;
   isGallantChargeModeActive: boolean;
   isConsecrationModeActive: boolean;
+  isBannerOfGloryModeActive: boolean;
+  plantedBanner: PlantedBannerState | null;
   isAnimatingMove: boolean;
   awaitingReaction: boolean;
   pendingAttack: PendingAttack | null;
@@ -392,4 +420,6 @@ export interface CombatState {
 export interface AudioPrefs {
   musicEnabled: boolean;
   isMuted: boolean;
+  musicVolume: number;
+  sfxVolume: number;
 }

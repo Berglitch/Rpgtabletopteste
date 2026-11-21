@@ -1,26 +1,31 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
+  ChevronLeft,
   ChevronRight,
   ChevronUp,
-  Compass,
   Crosshair,
   Crown,
   Droplet,
   Eye,
   EyeOff,
+  Flag,
   Flame,
   Footprints,
   Heart,
   LocateFixed,
+  Maximize2,
   Megaphone,
+  Minimize2,
   Music,
   Plus,
   RotateCcw,
   ScrollText,
+  Settings,
   Shield,
   ShieldAlert,
   Skull,
+  SlidersHorizontal,
   Sparkles,
   StepForward,
   Sun,
@@ -45,6 +50,7 @@ import {
   ARCANE_BOLT_UPGRADED_MP_COST,
   BASIC_ATTACK_EP_COST,
   BATTLEGROUND_MAP_URL,
+  getArenaMapUrl,
   BOARD_PIXEL_H,
   BOARD_PIXEL_W,
   CELL_METERS,
@@ -76,6 +82,12 @@ import {
   FIRE_BREATH_MP_COST,
   GALLANT_CHARGE_BONUS_DAMAGE,
   GALLANT_CHARGE_EP_COST,
+  BANNER_OF_GLORY_CAST_RANGE_METERS,
+  BANNER_OF_GLORY_DURATION_ROUNDS,
+  BANNER_OF_GLORY_MAGIC_DAMAGE,
+  BANNER_OF_GLORY_MP_COST,
+  BANNER_OF_GLORY_RADIUS_METERS,
+  BANNER_OF_GLORY_SHIELD_HP,
   GOBLIN_PORTRAIT_URL,
   GRID_COLS,
   GRID_ROWS,
@@ -117,20 +129,22 @@ import {
   STEALTH_DURATION_ROUNDS,
   STEALTH_EP_COST,
   STEALTH_EXTRA_DAMAGE_TAKEN,
-  TACTICAL_OBSTACLES,
   TAUNT_DURATION_ROUNDS,
   TAUNT_RANGE_CELLS,
   calculateKnockbackTrajectory,
   computeEnemyMove,
   computeFacingToward,
   computeSlimeLeapLanding,
+  computeStackMarkerDamage,
   createInitialCombatState,
   createSmallSlimeMinion,
   evaluateReactionSkill,
   findSlimeSummonCell,
   getArcaneBoltDamage,
   getArcaneBoltUpgradedDamage,
+  getArenaObstacles,
   getBackstabCells,
+  getBannerOfGloryAreaCells,
   getCharacterPortraitUrl,
   getConsecrationAreaCells,
   getDistance,
@@ -152,12 +166,14 @@ import {
   isBehindFacing,
   isEnemyCellAt,
   isObstacleCell,
+  isPosInBannerOfGloryZone,
   resolveCombatAttack,
   rollEvasionOnly,
   rollHitAndEvasion,
   rollMageBasicAttackDamage,
   rollPlayerWeaponDamage,
   rollPriestBasicAttackDamage,
+  selectStackMarkerTarget,
   type GallantChargeTarget,
 } from '../game/engine';
 import type {
@@ -179,7 +195,9 @@ import { SpellVfxCanvas, type SpellVfxCanvasHandle } from './SpellVfxCanvas';
 interface TacticalArenaModalProps {
   isOpen: boolean;
   character: CharacterState;
+  initialEnemyId?: EnemyId;
   onClose: () => void;
+  onBackToArenaSelect?: () => void;
 }
 
 interface SlashVfx {
@@ -552,18 +570,31 @@ interface MovingActor {
   knockback?: boolean;
 }
 
-const MIN_ZOOM = 0.45;
-const MAX_ZOOM = 3.0;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 3.5;
 const ZOOM_STEP = 0.2;
 
-export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArenaModalProps) {
-  const [selectedEnemyId, setSelectedEnemyId] = useState<EnemyId>('goblin');
-  const selectedEnemyIdRef = useRef<EnemyId>('goblin');
+type CornerMenuView = 'closed' | 'root' | 'config' | 'audio' | 'restart';
+
+export function TacticalArenaModal({
+  isOpen,
+  character,
+  initialEnemyId = 'goblin',
+  onClose,
+  onBackToArenaSelect,
+}: TacticalArenaModalProps) {
+  const [selectedEnemyId, setSelectedEnemyId] = useState<EnemyId>(initialEnemyId);
+  const selectedEnemyIdRef = useRef<EnemyId>(initialEnemyId);
   const [combat, setCombat] = useState<CombatState | null>(null);
   const [combatLog, setCombatLog] = useState<CombatLogEntry[]>([]);
-  const [isCombatLogOpen, setIsCombatLogOpen] = useState(true);
+  const [isCombatLogOpen, setIsCombatLogOpen] = useState(false);
   const [combatLogFilter, setCombatLogFilter] = useState<CombatLogFilter>('all');
+  const [cornerMenuView, setCornerMenuView] = useState<CornerMenuView>('closed');
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(
+    () => typeof document !== 'undefined' && Boolean(document.fullscreenElement)
+  );
   const [bannerKey, setBannerKey] = useState(0);
+  const [combatSessionSeq, setCombatSessionSeq] = useState(0);
   const [showBanner, setShowBanner] = useState(false);
   const [audioPrefs, setAudioPrefs] = useState<AudioPrefs>(() => gameAudio.getPrefs());
   const [hoveredCellKey, setHoveredCellKey] = useState<string | null>(null);
@@ -599,6 +630,10 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
   const [movingActor, setMovingActor] = useState<MovingActor | null>(null);
   const [hitTarget, setHitTarget] = useState<'player' | 'enemy' | string | null>(null);
   const [bossLeaping, setBossLeaping] = useState(false);
+  const [bossSummoning, setBossSummoning] = useState(false);
+  const [bossAcidStriking, setBossAcidStriking] = useState(false);
+  const [bossIntroPhase, setBossIntroPhase] = useState<'none' | 'spawning' | 'roaring'>('none');
+  const [spawningMinionId, setSpawningMinionId] = useState<string | null>(null);
   const [slimeSlamCells, setSlimeSlamCells] = useState<Set<string>>(new Set());
   const [lungeState, setLungeState] = useState<{
     who: 'player' | 'enemy' | string;
@@ -612,6 +647,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
   const spellVfxRef = useRef<SpellVfxCanvasHandle | null>(null);
   const logContainerRef = useRef<HTMLDivElement | null>(null);
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
+  const cornerMenuRef = useRef<HTMLDivElement | null>(null);
   const combatRef = useRef<CombatState | null>(null);
   const sessionIdRef = useRef(0);
   const nextIdRef = useRef(1);
@@ -706,23 +742,27 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
     setCombatLog((prev) => [...prev, { id, round, tone, tag, text, detail }]);
   }, []);
 
-  // Close Ação Padrão menu or Fire Breath aiming on outside click / Escape
+  // Close popovers, corner menu, log drawer or targeting modes on outside click / Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setIsStandardActionOpen(false);
+        setCornerMenuView('closed');
+        setIsCombatLogOpen(false);
         setHoveredCellKey(null);
         updateCombat((prev) =>
           prev.isFireBreathModeActive ||
           prev.isMoveModeActive ||
           prev.isGallantChargeModeActive ||
-          prev.isConsecrationModeActive
+          prev.isConsecrationModeActive ||
+          prev.isBannerOfGloryModeActive
             ? {
                 ...prev,
                 isFireBreathModeActive: false,
                 isMoveModeActive: false,
                 isGallantChargeModeActive: false,
                 isConsecrationModeActive: false,
+                isBannerOfGloryModeActive: false,
               }
             : prev
         );
@@ -730,15 +770,20 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
     };
     window.addEventListener('keydown', handleKeyDown);
 
-    if (!isStandardActionOpen) {
+    const needsOutsideListener = isStandardActionOpen || cornerMenuView !== 'closed';
+    if (!needsOutsideListener) {
       return () => {
         window.removeEventListener('keydown', handleKeyDown);
       };
     }
 
     const handlePointerDown = (e: MouseEvent) => {
-      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (isStandardActionOpen && actionMenuRef.current && !actionMenuRef.current.contains(target)) {
         setIsStandardActionOpen(false);
+      }
+      if (cornerMenuView !== 'closed' && cornerMenuRef.current && !cornerMenuRef.current.contains(target)) {
+        setCornerMenuView('closed');
       }
     };
     window.addEventListener('mousedown', handlePointerDown);
@@ -746,7 +791,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       window.removeEventListener('mousedown', handlePointerDown);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isStandardActionOpen, updateCombat]);
+  }, [isStandardActionOpen, cornerMenuView, updateCombat]);
 
   const clampCameraValues = useCallback((x: number, y: number, zoom: number) => {
     const viewport = viewportRef.current;
@@ -757,14 +802,14 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
 
     const scaledW = BOARD_PIXEL_W * zoom;
     const scaledH = BOARD_PIXEL_H * zoom;
-    const margin = 70;
+    const margin = 80;
 
     let cx = x;
     let cy = y;
 
     if (scaledW <= vw) {
       const center = (vw - scaledW) / 2;
-      const slack = Math.min(100, (vw - scaledW) / 2 + 40);
+      const slack = Math.min(120, (vw - scaledW) / 2 + 40);
       cx = Math.max(center - slack, Math.min(center + slack, cx));
     } else {
       cx = Math.max(vw - scaledW - margin, Math.min(margin, cx));
@@ -772,7 +817,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
 
     if (scaledH <= vh) {
       const center = (vh - scaledH) / 2;
-      const slack = Math.min(80, (vh - scaledH) / 2 + 40);
+      const slack = Math.min(100, (vh - scaledH) / 2 + 40);
       cy = Math.max(center - slack, Math.min(center + slack, cy));
     } else {
       cy = Math.max(vh - scaledH - margin, Math.min(margin, cy));
@@ -781,18 +826,48 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
     return { x: cx, y: cy, zoom };
   }, []);
 
-  const centerCamera = useCallback(() => {
+  const computeCenteredCamera = useCallback((smooth: boolean) => {
     const viewport = viewportRef.current;
-    if (!viewport) return;
-    const vw = viewport.clientWidth;
-    const vh = viewport.clientHeight;
+    const vw =
+      viewport && viewport.clientWidth > 0
+        ? viewport.clientWidth
+        : typeof window !== 'undefined'
+          ? window.innerWidth
+          : 0;
+    const vh =
+      viewport && viewport.clientHeight > 0
+        ? viewport.clientHeight
+        : typeof window !== 'undefined'
+          ? window.innerHeight
+          : 0;
     if (vw === 0 || vh === 0) return;
 
-    const fitZoom = Math.min(1, (vw - 24) / BOARD_PIXEL_W, (vh - 20) / BOARD_PIXEL_H);
-    const zoom = Math.max(MIN_ZOOM, Math.min(1, Number(fitZoom.toFixed(2))));
+    // Fit and center the 16x10 tactical grid dead-center in the viewport
+    const fitZoom = Math.min(vw / BOARD_PIXEL_W, vh / BOARD_PIXEL_H);
+    const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(fitZoom.toFixed(3))));
     const x = (vw - BOARD_PIXEL_W * zoom) / 2;
     const y = (vh - BOARD_PIXEL_H * zoom) / 2;
-    setCamera({ x, y, zoom, smooth: true });
+    setCamera({ x, y, zoom, smooth });
+  }, []);
+
+  const centerCamera = useCallback(() => {
+    computeCenteredCamera(true);
+  }, [computeCenteredCamera]);
+
+  const centerCameraInstant = useCallback(() => {
+    computeCenteredCamera(false);
+  }, [computeCenteredCamera]);
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch {
+      // Ignore browser fullscreen restriction if blocked
+    }
   }, []);
 
   const zoomAtPoint = useCallback(
@@ -900,6 +975,79 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
         () => setFloatingTexts((prev) => prev.filter((v) => v.id !== textId)),
         isCritical ? 1480 : 1050
       );
+    },
+    [scheduleTimeout]
+  );
+
+  // Slime Mãe Basic Attack VFX ("Pancada Ácida" — elastic boss squash/lunge + Canvas 2D acid tendril slam)
+  const triggerSlimeAcidSlamVfx = useCallback(
+    (
+      bossVisualPos: GridPos,
+      targetPos: GridPos,
+      damage: number,
+      customLabel?: string,
+      isCritical = false,
+      didHit = true
+    ) => {
+      gameAudio.playSlimeAcidSlam(isCritical);
+      if (didHit && isCritical) {
+        gameAudio.playCritImpact();
+        setIsViewportShaking(false);
+        requestAnimationFrame(() => setIsViewportShaking(true));
+        scheduleTimeout(() => setIsViewportShaking(false), 320);
+      }
+
+      const startX = bossVisualPos.x * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+      const startY = bossVisualPos.y * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+      const targetX = targetPos.x * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+      const targetY = targetPos.y * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+      const dx = targetX - startX;
+      const dy = targetY - startY;
+      const dist = Math.hypot(dx, dy) || 1;
+      const lungePx = isCritical ? 22 : 16;
+
+      setBossAcidStriking(true);
+      scheduleTimeout(() => setBossAcidStriking(false), 430);
+
+      setLungeState({
+        who: 'enemy',
+        dx: (dx / dist) * lungePx,
+        dy: (dy / dist) * lungePx,
+        scale: isCritical ? 1.14 : 1.08,
+      });
+      scheduleTimeout(() => setLungeState(null), 220);
+
+      spellVfxRef.current?.playSlimeAcidSlam({
+        startX,
+        startY,
+        targetX,
+        targetY,
+        isCritical,
+        didHit,
+      });
+
+      if (didHit) {
+        scheduleTimeout(() => {
+          setHitTarget('player');
+          scheduleTimeout(() => setHitTarget((cur) => (cur === 'player' ? null : cur)), 420);
+
+          const textId = nextIdRef.current++;
+          setFloatingTexts((prev) => [
+            ...prev,
+            {
+              id: textId,
+              x: targetX,
+              y: targetY - (isCritical ? 28 : 20),
+              text: customLabel ?? (isCritical ? `CRÍTICO -${damage}!` : `-${damage}`),
+              variant: isCritical ? 'crit' : damage > 0 ? 'poison' : 'shield',
+            },
+          ]);
+          scheduleTimeout(
+            () => setFloatingTexts((prev) => prev.filter((v) => v.id !== textId)),
+            isCritical ? 1480 : 1080
+          );
+        }, 120);
+      }
     },
     [scheduleTimeout]
   );
@@ -1242,22 +1390,32 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
         }
         const sizeCells =
           who === 'enemy' && !minionOpts ? combatRef.current?.enemy.sizeCells ?? 1 : 1;
+        const isBossSlime =
+          who === 'enemy' && !minionOpts && combatRef.current?.enemy.id === 'slime_mother';
+        const isMinionSlime = who === 'enemy' && Boolean(minionOpts);
+        const isSlimeMover = isBossSlime || isMinionSlime;
         const tokenPx = sizeCells > 1 ? 94 : 44;
         const tokenOffset = (CELL_PIXEL_SIZE * sizeCells - tokenPx) / 2;
-        const stepDuration = sizeCells > 1 ? 105 : 115;
+        const stepDuration = isBossSlime ? 138 : sizeCells > 1 ? 105 : 115;
+        let currentFacing: EnemyFacing | undefined =
+          minionOpts?.facing ?? combatRef.current?.enemy.facing;
 
         setHoveredToken(null);
         setMovingActor({
           who,
           minionId: minionOpts?.minionId,
           portraitUrl: minionOpts?.portraitUrl,
-          facing: minionOpts?.facing,
+          facing: currentFacing,
           left: path[0].x * CELL_PIXEL_SIZE + tokenOffset,
           top: path[0].y * CELL_PIXEL_SIZE + tokenOffset,
           transitionMs: 0,
         });
 
-        gameAudio.playFootsteps(path.length - 1);
+        if (isSlimeMover) {
+          gameAudio.playSlimeSlideSteps(path.length - 1, isBossSlime);
+        } else {
+          gameAudio.playFootsteps(path.length - 1);
+        }
 
         let stepIdx = 1;
         const advance = () => {
@@ -1267,6 +1425,17 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
             return;
           }
           if (stepIdx >= path.length) {
+            if (isSlimeMover) {
+              const lastPt = path[path.length - 1];
+              const prevLast = path[path.length - 2];
+              spellVfxRef.current?.playSlimeMoveTrail({
+                x: (lastPt.x + sizeCells / 2) * CELL_PIXEL_SIZE,
+                y: (lastPt.y + sizeCells / 2) * CELL_PIXEL_SIZE,
+                radius: isBossSlime ? 34 : 15,
+                angleRad: Math.atan2(lastPt.y - prevLast.y, lastPt.x - prevLast.x),
+                isBoss: isBossSlime,
+              });
+            }
             setMovingActor(null);
             resolve();
             return;
@@ -1274,23 +1443,36 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
 
           const prevPt = path[stepIdx - 1];
           const nextPt = path[stepIdx];
-          const dustId = nextIdRef.current++;
-          setDustVfxs((prev) => [
-            ...prev,
-            {
-              id: dustId,
+          if (nextPt.x > prevPt.x) currentFacing = 'right';
+          else if (nextPt.x < prevPt.x) currentFacing = 'left';
+
+          if (isSlimeMover) {
+            spellVfxRef.current?.playSlimeMoveTrail({
               x: (prevPt.x + sizeCells / 2) * CELL_PIXEL_SIZE,
               y: (prevPt.y + sizeCells / 2) * CELL_PIXEL_SIZE,
-              kind: 'footstep',
-            },
-          ]);
-          scheduleTimeout(() => setDustVfxs((prev) => prev.filter((d) => d.id !== dustId)), 400);
+              radius: isBossSlime ? 38 : 16,
+              angleRad: Math.atan2(nextPt.y - prevPt.y, nextPt.x - prevPt.x),
+              isBoss: isBossSlime,
+            });
+          } else {
+            const dustId = nextIdRef.current++;
+            setDustVfxs((prev) => [
+              ...prev,
+              {
+                id: dustId,
+                x: (prevPt.x + sizeCells / 2) * CELL_PIXEL_SIZE,
+                y: (prevPt.y + sizeCells / 2) * CELL_PIXEL_SIZE,
+                kind: 'footstep',
+              },
+            ]);
+            scheduleTimeout(() => setDustVfxs((prev) => prev.filter((d) => d.id !== dustId)), 400);
+          }
 
           setMovingActor({
             who,
             minionId: minionOpts?.minionId,
             portraitUrl: minionOpts?.portraitUrl,
-            facing: minionOpts?.facing,
+            facing: currentFacing,
             left: nextPt.x * CELL_PIXEL_SIZE + tokenOffset,
             top: nextPt.y * CELL_PIXEL_SIZE + tokenOffset,
             transitionMs: stepDuration,
@@ -1453,6 +1635,45 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
         hadSacredShield && nextSacredShieldTurns === 0 ? cur.player.sacredShieldHp : 0;
       const nextSacredShieldHp = nextSacredShieldTurns > 0 ? cur.player.sacredShieldHp : 0;
 
+      // Knight Estandarte da Glória: grants 10 points of Justice Shield at start of turn to allies inside 6.0m radius for 2 rounds
+      const hadPrevBannerShield = cur.player.bannerShieldTurns > 0;
+      const decayedBannerShieldTurns = Math.max(0, cur.player.bannerShieldTurns - 1);
+      const expiredBannerShieldHp =
+        hadPrevBannerShield && decayedBannerShieldTurns === 0 ? cur.player.bannerShieldHp : 0;
+      let nextBannerShieldHp = decayedBannerShieldTurns > 0 ? cur.player.bannerShieldHp : 0;
+      let nextBannerShieldTurns = decayedBannerShieldTurns;
+
+      const activeBanner = cur.plantedBanner;
+      let bannerGrantedShieldThisTurn = false;
+      let bannerExpiredThisTurn = false;
+      let bannerRemainingAfterTick = 0;
+      let nextPlantedBanner = activeBanner;
+
+      if (activeBanner && activeBanner.remainingRounds > 0) {
+        const playerInBannerZone =
+          runningPlayerHp > 0 &&
+          isPosInBannerOfGloryZone(
+            { x: cur.player.x, y: cur.player.y },
+            { x: activeBanner.x, y: activeBanner.y },
+            activeBanner.radiusMeters
+          );
+        if (playerInBannerZone) {
+          bannerGrantedShieldThisTurn = true;
+          nextBannerShieldHp = activeBanner.shieldPerTurn;
+          nextBannerShieldTurns = 1;
+        }
+        bannerRemainingAfterTick = Math.max(0, activeBanner.remainingRounds - 1);
+        if (bannerRemainingAfterTick <= 0) {
+          bannerExpiredThisTurn = true;
+          nextPlantedBanner = null;
+        } else {
+          nextPlantedBanner = {
+            ...activeBanner,
+            remainingRounds: bannerRemainingAfterTick,
+          };
+        }
+      }
+
       // Mage Armadura Arcana: lasts 2 rounds; expires automatically when remaining turns reach 0
       const hadArcaneArmor = cur.player.arcaneArmorTurns > 0;
       const nextArcaneArmorTurns = Math.max(0, cur.player.arcaneArmorTurns - 1);
@@ -1494,6 +1715,8 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
         isFireBreathModeActive: false,
         isGallantChargeModeActive: false,
         isConsecrationModeActive: false,
+        isBannerOfGloryModeActive: false,
+        plantedBanner: nextPlantedBanner,
         round: nextRound,
         player: {
           ...prev.player,
@@ -1507,6 +1730,8 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
           regenerationHealPerTurn: nextRegenHealPerTurn,
           sacredShieldHp: nextSacredShieldHp,
           sacredShieldTurns: nextSacredShieldTurns,
+          bannerShieldHp: defeatedByPoison ? 0 : nextBannerShieldHp,
+          bannerShieldTurns: defeatedByPoison ? 0 : nextBannerShieldTurns,
           stealthTurns: nextStealthTurns,
           poisonTurns: defeatedByPoison ? 0 : nextPoisonTurns,
           poisonDamagePerTurn: defeatedByPoison ? 0 : nextPoisonDmgPerTurn,
@@ -1622,6 +1847,43 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
         );
       }
 
+      if (bannerGrantedShieldThisTurn) {
+        gameAudio.playJusticeShieldChime();
+        const px = cur.player.x * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+        const py = cur.player.y * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+        spellVfxRef.current?.playSacredShield({ x: px, y: py });
+        triggerFloatingStatus(
+          { x: cur.player.x, y: cur.player.y },
+          `+${BANNER_OF_GLORY_SHIELD_HP} ESCUDO (JUSTIÇA)`,
+          'shield'
+        );
+        appendLog(
+          'player',
+          `A energia da justiça do Estandarte da Glória concedeu +${BANNER_OF_GLORY_SHIELD_HP} pontos de escudo a ${heroDisplayName} no início do turno!${
+            bannerRemainingAfterTick > 0
+              ? ` O estandarte permanece fincado por mais ${bannerRemainingAfterTick} rodada.`
+              : ' O estandarte completou suas 2 rodadas e se dissipou.'
+          }`,
+          'ESTANDARTE DA GLÓRIA',
+          `+${BANNER_OF_GLORY_SHIELD_HP} Escudo da Justiça`
+        );
+      } else {
+        if (hadPrevBannerShield && decayedBannerShieldTurns === 0 && expiredBannerShieldHp > 0) {
+          appendLog(
+            'info',
+            `O Escudo da Justiça (${expiredBannerShieldHp} pts restantes) dissipou-se no início do turno.`,
+            'ESTANDARTE DA GLÓRIA'
+          );
+        }
+        if (bannerExpiredThisTurn) {
+          appendLog(
+            'info',
+            'O Estandarte da Glória encerrou sua área de energia da justiça após 2 rodadas.',
+            'ESTANDARTE DA GLÓRIA'
+          );
+        }
+      }
+
       if (hadArcaneArmor && nextArcaneArmorTurns === 0) {
         appendLog(
           'info',
@@ -1670,6 +1932,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
             isMoveModeActive: false,
             isGallantChargeModeActive: false,
             isConsecrationModeActive: false,
+            isBannerOfGloryModeActive: false,
             player: {
               ...prev.player,
               stunnedTurns: Math.max(0, prev.player.stunnedTurns - 1),
@@ -1856,7 +2119,8 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
         { x: afterCd.player.x, y: afterCd.player.y },
         curMinion.moveMeters,
         1,
-        extraBlocked
+        extraBlocked,
+        afterCd.enemy.id
       );
 
       if (mPath.length > 1) {
@@ -2152,6 +2416,8 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
               ...updated.enemy,
               tankBusterCharging: bossDeadFromBleed ? false : updated.enemy.tankBusterCharging,
               tankBusterTarget: bossDeadFromBleed ? null : updated.enemy.tankBusterTarget,
+              stackMarkerCharging: bossDeadFromBleed ? false : updated.enemy.stackMarkerCharging,
+              stackMarkerTarget: bossDeadFromBleed ? null : updated.enemy.stackMarkerTarget,
             },
             minions: updated.minions,
             selectedTargetId: updated.selectedTargetId,
@@ -2251,6 +2517,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                 heavyBlowCooldown: Math.max(0, prev.enemy.heavyBlowCooldown - 1),
                 tankBusterCooldown: Math.max(0, prev.enemy.tankBusterCooldown - 1),
                 leapSlamCooldown: Math.max(0, prev.enemy.leapSlamCooldown - 1),
+                stackMarkerCooldown: Math.max(0, prev.enemy.stackMarkerCooldown - 1),
               },
             }));
             triggerFloatingStatus(
@@ -2331,7 +2598,8 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
             playerPos,
             chaseMeters,
             preAction.enemy.sizeCells,
-            livingMinionCells
+            livingMinionCells,
+            preAction.enemy.id
           );
           if (chasePath.length > 1) {
             const finalPos = chasePath[chasePath.length - 1];
@@ -2461,10 +2729,81 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       }
 
       // =========================================================================
+      // BOSS STACK MARKER PHASE B: UNLEASH "COLAPSO ÁCIDO" (IGNORES TAUNT, ANY RANGE)
+      // =========================================================================
+      if (preAction.enemy.stackMarkerCharging && preAction.enemy.skills.stackMarker) {
+        const stackSkill = preAction.enemy.skills.stackMarker;
+        const targetPos = { x: preAction.player.x, y: preAction.player.y };
+        // Party-ready: pass positions of any other living allied combatants adjacent to targetPos
+        const otherLivingAllyPositions: GridPos[] = [];
+        const stackRes = computeStackMarkerDamage(
+          stackSkill.baseMaxDamage,
+          targetPos,
+          otherLivingAllyPositions
+        );
+        const regenedBossEp = Math.min(
+          preAction.enemy.maxEp,
+          preAction.enemy.ep + PASSIVE_EP_REGEN
+        );
+
+        const pendingStack: PendingAttack = {
+          attackerId: 'primary',
+          attackerName: preAction.enemy.name,
+          attackName: stackSkill.name,
+          damageType: 'magical',
+          baseDamage: stackSkill.baseMaxDamage,
+          incomingDamage: stackRes.damageEach,
+          isCritical: false,
+          isHeavyBlow: false,
+          isStackMarker: true,
+          stackAdjacentAllies: stackRes.adjacentCount,
+          stackParticipants: stackRes.participants,
+        };
+
+        updateCombat((prev) => ({
+          ...prev,
+          awaitingReaction: availableReactions.length > 0,
+          pendingAttack: availableReactions.length > 0 ? pendingStack : null,
+          enemy: {
+            ...prev.enemy,
+            ep: regenedBossEp,
+            stackMarkerCharging: false,
+            stackMarkerTarget: null,
+            stackMarkerCooldown: stackSkill.cooldown,
+            facing: computeFacingToward(
+              { x: prev.enemy.x, y: prev.enemy.y },
+              targetPos,
+              prev.enemy.facing,
+              prev.enemy.sizeCells
+            ),
+          },
+        }));
+
+        if (availableReactions.length === 0) {
+          await resolveIncomingAttackRef.current(pendingStack, 'none');
+          return;
+        }
+
+        gameAudio.playReactionAlert();
+        const stackNote =
+          stackRes.participants > 1
+            ? `dividido entre ${stackRes.participants} jogadores (${stackSkill.baseMaxDamage} ÷ ${stackRes.participants})`
+            : 'alvo isolado · dano total';
+        appendLog(
+          'warning',
+          `${enemyArticle} ${preAction.enemy.name} descarrega "${stackSkill.name}" (${stackRes.damageEach} dano mágico · ${stackNote})! Escolha sua reação.`,
+          'COLAPSO ÁCIDO'
+        );
+        return;
+      }
+
+      // =========================================================================
       // BOSS CHARGED ATTACK PHASE A: SILENT CHARGE (VISUAL WARNING OVER TOKEN ONLY!)
       // =========================================================================
       const tbSkillAvail =
         !!preAction.enemy.skills.tankBuster && preAction.enemy.tankBusterCooldown <= 0;
+      const stackSkillAvail =
+        !!preAction.enemy.skills.stackMarker && preAction.enemy.stackMarkerCooldown <= 0;
       const leapSkillAvail =
         !!preAction.enemy.skills.leapSlam && preAction.enemy.leapSlamCooldown <= 0;
       const distToPlayerNow = getDistanceToEnemy(
@@ -2474,14 +2813,56 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       );
       const maxNormalCells = Math.floor(preAction.enemy.moveMeters / CELL_METERS);
 
-      // If both Impacto Gosmento and Salto Gosmento are off cooldown, vary selection (50% each)
-      const preferLeapOverCharge = leapSkillAvail && Math.random() < 0.5;
+      // Vary among ready signature boss mechanics (Impacto Gosmento, Colapso Ácido, Salto Gosmento)
+      const readySignatureSkills: Array<'tb' | 'stack' | 'leap'> = [];
+      if (tbSkillAvail && distToPlayerNow <= maxNormalCells) readySignatureSkills.push('tb');
+      // Colapso Ácido ignores Provocar and can lock onto any living hostile combatant at any range
+      if (stackSkillAvail) readySignatureSkills.push('stack');
+      if (leapSkillAvail) readySignatureSkills.push('leap');
 
-      if (
-        tbSkillAvail &&
-        !preferLeapOverCharge &&
-        distToPlayerNow <= maxNormalCells
-      ) {
+      const chosenSignature =
+        readySignatureSkills.length > 0
+          ? readySignatureSkills[Math.floor(Math.random() * readySignatureSkills.length)]
+          : null;
+
+      if (chosenSignature === 'stack') {
+        const stackTarget = selectStackMarkerTarget([
+          { id: 'player', hp: preAction.player.hp },
+        ]);
+        if (stackTarget) {
+          const regenedBossEp = Math.min(
+            preAction.enemy.maxEp,
+            preAction.enemy.ep + PASSIVE_EP_REGEN
+          );
+
+          updateCombat((prev) => ({
+            ...prev,
+            enemy: {
+              ...prev.enemy,
+              ep: regenedBossEp,
+              tankBusterCooldown: Math.max(0, prev.enemy.tankBusterCooldown - 1),
+              leapSlamCooldown: Math.max(0, prev.enemy.leapSlamCooldown - 1),
+              stackMarkerCharging: true,
+              stackMarkerTarget: stackTarget.id,
+              facing: computeFacingToward(
+                { x: prev.enemy.x, y: prev.enemy.y },
+                { x: prev.player.x, y: prev.player.y },
+                prev.enemy.facing,
+                prev.enemy.sizeCells
+              ),
+            },
+          }));
+
+          // ONLY visual FFXIV 4-arrow Stack Marker over target token — NO combat log spoiler!
+          gameAudio.playStackMarkerTelegraph();
+          triggerViewportShake();
+
+          proceedAfterBossTurn(950);
+          return;
+        }
+      }
+
+      if (chosenSignature === 'tb') {
         const regenedBossEp = Math.min(
           preAction.enemy.maxEp,
           preAction.enemy.ep + PASSIVE_EP_REGEN
@@ -2493,6 +2874,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
             ...prev.enemy,
             ep: regenedBossEp,
             leapSlamCooldown: Math.max(0, prev.enemy.leapSlamCooldown - 1),
+            stackMarkerCooldown: Math.max(0, prev.enemy.stackMarkerCooldown - 1),
             tankBusterCharging: true,
             tankBusterTarget: 'player',
             tankBusterTargetStartPos: { x: prev.player.x, y: prev.player.y },
@@ -2547,20 +2929,49 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
             spawnCell,
             summonFacing
           );
+
+          // Choreographed mitotic split animation: Slime Mãe pulses & launches arcing slime globule
+          const bossCenterX =
+            (preAction.enemy.x + preAction.enemy.sizeCells / 2) * CELL_PIXEL_SIZE;
+          const bossCenterY =
+            (preAction.enemy.y + preAction.enemy.sizeCells / 2) * CELL_PIXEL_SIZE;
+          const spawnCenterX = spawnCell.x * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+          const spawnCenterY = spawnCell.y * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+
+          setBossSummoning(true);
+          scheduleTimeout(() => setBossSummoning(false), 680);
+          gameAudio.playSlimeSummon();
+          spellVfxRef.current?.playSlimeSummon({
+            startX: bossCenterX,
+            startY: bossCenterY,
+            endX: spawnCenterX,
+            endY: spawnCenterY,
+            travelMs: 340,
+          });
+
+          // Wait for arcing globule to land before popping the Slime Pequena token onto the tile
+          await new Promise<void>((resolve) => scheduleTimeout(resolve, 340));
+          if (sessionIdRef.current !== sessionId) return;
+
           updateCombat((prev) => ({
             ...prev,
             minions: [...prev.minions, newSlime],
           }));
           livingMinionCells.push(spawnCell);
+          setSpawningMinionId(newSlime.instanceId);
+          scheduleTimeout(
+            () =>
+              setSpawningMinionId((curId) => (curId === newSlime.instanceId ? null : curId)),
+            580
+          );
           gameAudio.playPoisonSizzle();
           triggerFloatingStatus(spawnCell, 'SLIME INVOCADA!', 'poison');
           appendLog(
             'warning',
-            `${enemyArticle} ${preAction.enemy.name} se divide e invoca ${newSlime.name} (${newSlime.maxHp} HP · ${newSlime.maxMp} MP · Investida Ácida / Cuspe Gosmento)!`,
-            'INVOCAÇÃO',
-            `${SLIME_MOTHER_SUMMON_CHANCE}% chance/turno`
+            `${enemyArticle} ${preAction.enemy.name} se divide e invoca ${newSlime.name}!`,
+            'INVOCAÇÃO'
           );
-          await new Promise<void>((resolve) => scheduleTimeout(resolve, 420));
+          await new Promise<void>((resolve) => scheduleTimeout(resolve, 440));
           if (sessionIdRef.current !== sessionId) return;
         }
       }
@@ -2587,6 +2998,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
           heavyBlowCooldown: Math.max(0, prev.enemy.heavyBlowCooldown - 1),
           tankBusterCooldown: Math.max(0, prev.enemy.tankBusterCooldown - 1),
           leapSlamCooldown: Math.max(0, prev.enemy.leapSlamCooldown - 1),
+          stackMarkerCooldown: Math.max(0, prev.enemy.stackMarkerCooldown - 1),
         },
       }));
 
@@ -2773,7 +3185,8 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
         { x: afterCd.player.x, y: afterCd.player.y },
         afterCd.enemy.moveMeters,
         afterCd.enemy.sizeCells,
-        blockedForBossMove
+        blockedForBossMove,
+        afterCd.enemy.id
       );
 
       if (enemyPath.length > 1) {
@@ -3124,6 +3537,16 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
               ep: regenedEnemyEp - BASIC_ATTACK_EP_COST,
             },
           }));
+          if (afterMove.enemy.id === 'slime_mother') {
+            triggerSlimeAcidSlamVfx(
+              getEnemyVisualPos(afterMove.enemy),
+              { x: afterMove.player.x, y: afterMove.player.y },
+              0,
+              undefined,
+              false,
+              false
+            );
+          }
           gameAudio.playEvadeWhoosh();
           triggerFloatingStatus(
             { x: afterMove.player.x, y: afterMove.player.y },
@@ -3216,6 +3639,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       startPlayerTurn,
       triggerFloatingStatus,
       triggerSlashVfx,
+      triggerSlimeAcidSlamVfx,
       triggerViewportShake,
       updateCombat,
     ]
@@ -3244,6 +3668,9 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       setMovingActor(null);
       setHitTarget(null);
       setBossLeaping(false);
+      setBossSummoning(false);
+      setBossAcidStriking(false);
+      setSpawningMinionId(null);
       setSlimeSlamCells(new Set());
       setLungeState(null);
       setHoveredCellKey(null);
@@ -3288,7 +3715,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
           round: 1,
           tone: 'warning',
           tag: 'CHEFE ABISSAL',
-          text: `${enemyName} (${initial.enemy.maxHp} HP · Grande 2×2 · Mov. 9,0m): Visão Verdadeira (enxerga invisibilidade), Pancada Ácida (10% Veneno), Salto Gosmento (alcance 6m + área 6m · 5 Fís. + 5 Mág. · 15% Veneno · recarga 3t) e 25% de chance/turno de invocar Slime Pequena.`,
+          text: `${enemyName} (Grande 2×2 · Mov. 9,0m) emerge das sombras e ruge desafiando os invasores!`,
         });
       }
 
@@ -3298,43 +3725,117 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       setShowBanner(true);
       scheduleTimeout(() => {
         if (sessionIdRef.current === sessionId) setShowBanner(false);
-      }, 2650);
+      }, initial.enemy.isBoss ? 3050 : 2650);
 
-      gameAudio.playCombatStartHorn();
-      gameAudio.startBattleMusic();
+      if (initial.enemy.id === 'slime_mother') {
+        setBossIntroPhase('spawning');
+        gameAudio.startBattleMusic('slime_mother');
+
+        const bossCenterX =
+          (initial.enemy.x + initial.enemy.sizeCells / 2) * CELL_PIXEL_SIZE;
+        const bossCenterY =
+          (initial.enemy.y + initial.enemy.sizeCells / 2) * CELL_PIXEL_SIZE;
+        const bossSizePx = initial.enemy.sizeCells * CELL_PIXEL_SIZE;
+
+        scheduleTimeout(() => {
+          if (sessionIdRef.current !== sessionId) return;
+          gameAudio.playSlimeSummon();
+          spellVfxRef.current?.playSlimeMotherSpawnRoar({
+            centerX: bossCenterX,
+            centerY: bossCenterY,
+            sizePx: bossSizePx,
+          });
+        }, 70);
+
+        scheduleTimeout(() => {
+          if (sessionIdRef.current !== sessionId) return;
+          setBossIntroPhase('roaring');
+          gameAudio.playSlimeMotherRoar();
+          triggerViewportShake();
+          triggerFloatingStatus(
+            getEnemyVisualPos(initial.enemy),
+            'GRRAAAAUUUGH!!',
+            'poison'
+          );
+        }, 500);
+
+        scheduleTimeout(() => {
+          if (sessionIdRef.current !== sessionId) return;
+          triggerViewportShake();
+        }, 960);
+
+        scheduleTimeout(() => {
+          if (sessionIdRef.current !== sessionId) return;
+          setBossIntroPhase('none');
+        }, 2150);
+      } else {
+        setBossIntroPhase('none');
+        gameAudio.playCombatStartHorn();
+        gameAudio.startBattleMusic('default');
+      }
       setAudioPrefs(gameAudio.getPrefs());
 
-      requestAnimationFrame(() => {
-        centerCamera();
-      });
+      setCombatSessionSeq((n) => n + 1);
+      centerCameraInstant();
 
       if (initial.currentTurn === 'enemy') {
-        scheduleTimeout(() => {
-          void executeGoblinTurn(sessionId);
-        }, 1450);
+        scheduleTimeout(
+          () => {
+            void executeGoblinTurn(sessionId);
+          },
+          initial.enemy.id === 'slime_mother' ? 2550 : 1450
+        );
       }
     },
-    [centerCamera, character, clearAllTimers, executeGoblinTurn, scheduleTimeout]
+    [
+      centerCameraInstant,
+      character,
+      clearAllTimers,
+      executeGoblinTurn,
+      scheduleTimeout,
+      triggerFloatingStatus,
+      triggerViewportShake,
+    ]
   );
 
   // Open / close lifecycle
   useEffect(() => {
     if (isOpen) {
-      startNewCombat();
+      startNewCombat(initialEnemyId);
     } else {
       clearAllTimers();
       sessionIdRef.current++;
       gameAudio.stopBattleMusic();
+      setBossIntroPhase('none');
       setCombat(null);
       combatRef.current = null;
       setIsStandardActionOpen(false);
+      setCornerMenuView('closed');
+      setIsCombatLogOpen(false);
     }
 
     return () => {
       clearAllTimers();
       gameAudio.stopBattleMusic();
     };
-  }, [isOpen, startNewCombat, clearAllTimers]);
+  }, [isOpen, initialEnemyId, startNewCombat, clearAllTimers]);
+
+  // Snap camera cleanly to the center of the tactical grid as soon as the arena mounts or restarts
+  useLayoutEffect(() => {
+    if (!isOpen || !hasCombat) return;
+    centerCameraInstant();
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      centerCameraInstant();
+      raf2 = requestAnimationFrame(() => {
+        centerCameraInstant();
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, [isOpen, hasCombat, combatSessionSeq, centerCameraInstant]);
 
   // Auto-scroll combat log when entries arrive or filter/visibility changes
   useEffect(() => {
@@ -3343,27 +3844,27 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
     }
   }, [combatLog, combatLogFilter, isCombatLogOpen]);
 
-  // Re-center camera cleanly when combat log panel toggles width
-  useEffect(() => {
-    if (!isOpen) return;
-    const raf = requestAnimationFrame(() => {
-      centerCamera();
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [isCombatLogOpen, isOpen, centerCamera]);
-
-  // Re-clamp camera on window resize
+  // Re-fit immersive fullscreen grid cleanly on window resize or fullscreen toggle
   useEffect(() => {
     if (!isOpen) return;
     const onResize = () => {
-      setCamera((prev) => ({
-        ...clampCameraValues(prev.x, prev.y, prev.zoom),
-        smooth: false,
-      }));
+      requestAnimationFrame(() => {
+        centerCamera();
+      });
+    };
+    const onFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+      requestAnimationFrame(() => {
+        centerCamera();
+      });
     };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [clampCameraValues, isOpen]);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+    };
+  }, [centerCamera, isOpen]);
 
   // Wheel zoom listener (re-runs once combat initializes so viewportRef is mounted)
   useEffect(() => {
@@ -3372,6 +3873,10 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
     if (!viewport) return;
 
     const handleWheel = (e: WheelEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-viewport-control="true"], [data-reaction-overlay="true"]')) {
+        return;
+      }
       e.preventDefault();
       const rect = viewport.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
@@ -3591,7 +4096,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       return new Map();
     }
     const blocked: GridPos[] = [
-      ...TACTICAL_OBSTACLES,
+      ...getArenaObstacles(combat.enemy.id),
       ...(combat.enemy.hp > 0
         ? getEnemyOccupiedCells(
             { x: combat.enemy.x, y: combat.enemy.y },
@@ -3616,7 +4121,8 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       getBackstabCells(
         { x: activeTgt.x, y: activeTgt.y },
         activeTgt.facing,
-        activeTgt.sizeCells
+        activeTgt.sizeCells,
+        combat.enemy.id
       ).map((c) => `${c.x},${c.y}`)
     );
   }, [combat, isRogue]);
@@ -3678,7 +4184,8 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       { x: combat.player.x, y: combat.player.y },
       { x: combat.enemy.x, y: combat.enemy.y },
       combat.enemy.hp > 0,
-      combat.enemy.sizeCells
+      combat.enemy.sizeCells,
+      combat.enemy.id
     );
   }, [combat]);
 
@@ -3783,6 +4290,61 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
     return new Set<string>(areaCells.map((c) => `${c.x},${c.y}`));
   }, [combat, consecrationRangeSet, hoveredCellKey]);
 
+  // Knight Estandarte da Glória: valid cast points within 7.5m (5 cells) and 6.0m Justice AoE circle preview
+  const bannerCastRangeSet = useMemo(() => {
+    if (
+      !combat ||
+      !combat.isActive ||
+      !combat.isBannerOfGloryModeActive ||
+      combat.currentTurn !== 'player' ||
+      combat.player.hasActed ||
+      combat.player.stunnedTurns > 0
+    ) {
+      return new Set<string>();
+    }
+    const valid = new Set<string>();
+    for (let row = 0; row < GRID_ROWS; row++) {
+      for (let col = 0; col < GRID_COLS; col++) {
+        if (isObstacleCell(col, row, combat.enemy.id)) continue;
+        const distMeters =
+          Math.hypot(col - combat.player.x, row - combat.player.y) * CELL_METERS;
+        if (distMeters <= BANNER_OF_GLORY_CAST_RANGE_METERS + 0.05) {
+          valid.add(`${col},${row}`);
+        }
+      }
+    }
+    return valid;
+  }, [combat]);
+
+  const hoveredBannerAreaSet = useMemo(() => {
+    if (
+      !combat ||
+      !combat.isActive ||
+      !combat.isBannerOfGloryModeActive ||
+      combat.currentTurn !== 'player' ||
+      combat.player.hasActed ||
+      !hoveredCellKey ||
+      !bannerCastRangeSet.has(hoveredCellKey)
+    ) {
+      return new Set<string>();
+    }
+    const [hx, hy] = hoveredCellKey.split(',').map(Number);
+    if (Number.isNaN(hx) || Number.isNaN(hy)) return new Set<string>();
+    const areaCells = getBannerOfGloryAreaCells({ x: hx, y: hy });
+    return new Set<string>(areaCells.map((c) => `${c.x},${c.y}`));
+  }, [combat, bannerCastRangeSet, hoveredCellKey]);
+
+  const plantedBannerAreaSet = useMemo(() => {
+    if (!combat || !combat.plantedBanner || combat.plantedBanner.remainingRounds <= 0) {
+      return new Set<string>();
+    }
+    const areaCells = getBannerOfGloryAreaCells({
+      x: combat.plantedBanner.x,
+      y: combat.plantedBanner.y,
+    });
+    return new Set<string>(areaCells.map((c) => `${c.x},${c.y}`));
+  }, [combat]);
+
   const handleToggleMoveMode = () => {
     const cur = combatRef.current;
     if (
@@ -3804,6 +4366,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       isFireBreathModeActive: false,
       isGallantChargeModeActive: false,
       isConsecrationModeActive: false,
+      isBannerOfGloryModeActive: false,
     }));
   };
 
@@ -3835,7 +4398,8 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       { x: cur.player.x, y: cur.player.y },
       { x: cur.enemy.x, y: cur.enemy.y },
       cur.enemy.hp > 0,
-      cur.enemy.sizeCells
+      cur.enemy.sizeCells,
+      cur.enemy.id
     );
     if (targets.size === 0) {
       appendLog('warning', 'Não há caminho livre em linha reta para executar Investida Galante.');
@@ -3847,8 +4411,276 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       ...prev,
       isMoveModeActive: false,
       isFireBreathModeActive: false,
+      isConsecrationModeActive: false,
+      isBannerOfGloryModeActive: false,
       isGallantChargeModeActive: !prev.isGallantChargeModeActive,
     }));
+  };
+
+  // Knight Skill: Toggle Estandarte da Glória (3 MP, 7.5m spear-banner throw, 6.0m AoE: 10 Magic + Physical Attack, 2-round Justice Zone granting +10 Shield at start of turn)
+  const handleToggleBannerOfGloryMode = () => {
+    setIsStandardActionOpen(false);
+    const cur = combatRef.current;
+    if (
+      !cur ||
+      !cur.isActive ||
+      cur.currentTurn !== 'player' ||
+      cur.player.hasActed ||
+      cur.player.stunnedTurns > 0 ||
+      cur.isAnimatingMove ||
+      cur.awaitingReaction
+    ) {
+      return;
+    }
+
+    if (cur.player.mp < BANNER_OF_GLORY_MP_COST) {
+      appendLog(
+        'warning',
+        `Mana insuficiente para Estandarte da Glória! Necessário ${BANNER_OF_GLORY_MP_COST} MP (atual: ${cur.player.mp} MP).`
+      );
+      return;
+    }
+
+    setHoveredCellKey(null);
+    updateCombat((prev) => ({
+      ...prev,
+      isMoveModeActive: false,
+      isFireBreathModeActive: false,
+      isGallantChargeModeActive: false,
+      isConsecrationModeActive: false,
+      isBannerOfGloryModeActive: !prev.isBannerOfGloryModeActive,
+    }));
+  };
+
+  const executeBannerOfGlory = async (targetCell: GridPos) => {
+    const cur = combatRef.current;
+    if (
+      !cur ||
+      !cur.isActive ||
+      !cur.isBannerOfGloryModeActive ||
+      cur.currentTurn !== 'player' ||
+      cur.player.hasActed ||
+      cur.player.stunnedTurns > 0 ||
+      cur.isAnimatingMove ||
+      cur.awaitingReaction
+    ) {
+      return;
+    }
+
+    if (isObstacleCell(targetCell.x, targetCell.y, cur.enemy.id)) {
+      appendLog('warning', 'Não é possível fincar o Estandarte da Glória sobre um obstáculo.');
+      return;
+    }
+
+    const castDistMeters =
+      Math.hypot(targetCell.x - cur.player.x, targetCell.y - cur.player.y) * CELL_METERS;
+    if (castDistMeters > BANNER_OF_GLORY_CAST_RANGE_METERS + 0.05) {
+      appendLog(
+        'warning',
+        `Alvo fora do alcance de Estandarte da Glória (máximo ${BANNER_OF_GLORY_CAST_RANGE_METERS.toFixed(1).replace('.', ',')}m).`
+      );
+      return;
+    }
+
+    if (cur.player.mp < BANNER_OF_GLORY_MP_COST) {
+      appendLog(
+        'warning',
+        `Mana insuficiente para Estandarte da Glória! Necessário ${BANNER_OF_GLORY_MP_COST} MP (atual: ${cur.player.mp} MP).`
+      );
+      updateCombat((prev) => ({ ...prev, isBannerOfGloryModeActive: false }));
+      return;
+    }
+
+    const sessionId = sessionIdRef.current;
+    const nextPlayerMp = Math.max(0, cur.player.mp - BANNER_OF_GLORY_MP_COST);
+    const startX = cur.player.x * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+    const startY = cur.player.y * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+    const targetX = targetCell.x * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+    const targetY = targetCell.y * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+    const radiusPx = (BANNER_OF_GLORY_RADIUS_METERS / CELL_METERS) * CELL_PIXEL_SIZE;
+
+    setHoveredCellKey(null);
+    updateCombat((prev) => ({
+      ...prev,
+      isBannerOfGloryModeActive: false,
+      isMoveModeActive: false,
+      player: {
+        ...prev.player,
+        mp: nextPlayerMp,
+        hasActed: true,
+      },
+    }));
+
+    gameAudio.playBannerOfGloryThrow();
+    spellVfxRef.current?.playBannerOfGlory({
+      startX,
+      startY,
+      targetX,
+      targetY,
+      radiusPx,
+    });
+
+    // Wait for spear flight arc to plunge into the ground (340ms)
+    await new Promise<void>((resolve) => scheduleTimeout(resolve, 340));
+    if (sessionIdRef.current !== sessionId) return;
+
+    const afterFlight = combatRef.current;
+    if (!afterFlight || !afterFlight.isActive) return;
+
+    triggerViewportShake();
+
+    const areaCells = getBannerOfGloryAreaCells(targetCell);
+    const areaSet = new Set(areaCells.map((c) => `${c.x},${c.y}`));
+    const bonusDmg =
+      afterFlight.player.beyondLimitTurns > 0 ? HUMAN_BEYOND_LIMIT_BONUS_DAMAGE : 0;
+
+    // Identify all living enemies inside the 6.0m impact area around the planted spear
+    const primaryInArea =
+      afterFlight.enemy.hp > 0 &&
+      getEnemyOccupiedCells(
+        { x: afterFlight.enemy.x, y: afterFlight.enemy.y },
+        afterFlight.enemy.sizeCells
+      ).some((c) => areaSet.has(`${c.x},${c.y}`));
+
+    const hitMinions = afterFlight.minions.filter(
+      (m) => m.hp > 0 && areaSet.has(`${m.x},${m.y}`)
+    );
+
+    let nextEnemyHp = afterFlight.enemy.hp;
+    const minionDamageMap = new Map<
+      string,
+      { totalDmg: number; physDmg: number; magDmg: number; nextHp: number }
+    >();
+    const hitSummaries: string[] = [];
+    const defeatedNames: string[] = [];
+
+    if (primaryInArea) {
+      const rawPhys = rollPlayerWeaponDamage(character, bonusDmg);
+      const physDmg = Math.max(0, rawPhys - afterFlight.enemy.physicalDefense);
+      const magDmg = Math.max(
+        0,
+        BANNER_OF_GLORY_MAGIC_DAMAGE - afterFlight.enemy.magicDefense
+      );
+      const totalDmg = physDmg + magDmg;
+      nextEnemyHp = Math.max(0, afterFlight.enemy.hp - totalDmg);
+      hitSummaries.push(
+        `${afterFlight.enemy.name}: ${totalDmg} (${physDmg} Fís. + ${magDmg} Mág.)`
+      );
+      if (nextEnemyHp <= 0) defeatedNames.push(afterFlight.enemy.name);
+
+      setHitTarget('enemy');
+      scheduleTimeout(() => setHitTarget((t) => (t === 'enemy' ? null : t)), 420);
+      triggerFloatingStatus(
+        getEnemyVisualPos(afterFlight.enemy),
+        totalDmg > 0 ? `-${totalDmg} ESTANDARTE!` : 'BLOQUEADO!',
+        totalDmg > 0 ? 'crit' : 'shield'
+      );
+    }
+
+    for (const m of hitMinions) {
+      const rawPhys = rollPlayerWeaponDamage(character, bonusDmg);
+      const physDmg = Math.max(0, rawPhys - m.physicalDefense);
+      const magDmg = Math.max(0, BANNER_OF_GLORY_MAGIC_DAMAGE - m.magicDefense);
+      const totalDmg = physDmg + magDmg;
+      const nextMinionHp = Math.max(0, m.hp - totalDmg);
+      minionDamageMap.set(m.instanceId, {
+        totalDmg,
+        physDmg,
+        magDmg,
+        nextHp: nextMinionHp,
+      });
+      hitSummaries.push(`${m.name}: ${totalDmg} (${physDmg} Fís. + ${magDmg} Mág.)`);
+      if (nextMinionHp <= 0) defeatedNames.push(m.name);
+
+      triggerFloatingStatus(
+        { x: m.x, y: m.y },
+        totalDmg > 0 ? `-${totalDmg} ESTANDARTE!` : 'BLOQUEADO!',
+        totalDmg > 0 ? 'crit' : 'shield'
+      );
+    }
+
+    const updatedMinions = afterFlight.minions.map((m) => {
+      const dmgInfo = minionDamageMap.get(m.instanceId);
+      return dmgInfo ? { ...m, hp: dmgInfo.nextHp } : m;
+    });
+    const allEnemiesDefeated =
+      nextEnemyHp <= 0 && updatedMinions.every((m) => m.hp <= 0);
+
+    const nextSelectedTargetId =
+      afterFlight.selectedTargetId === 'primary' && nextEnemyHp <= 0
+        ? updatedMinions.find((m) => m.hp > 0)?.instanceId ?? 'primary'
+        : afterFlight.selectedTargetId !== 'primary' &&
+          !updatedMinions.some(
+            (m) => m.instanceId === afterFlight.selectedTargetId && m.hp > 0
+          )
+        ? nextEnemyHp > 0
+          ? 'primary'
+          : updatedMinions.find((m) => m.hp > 0)?.instanceId ?? 'primary'
+        : afterFlight.selectedTargetId;
+
+    updateCombat((prev) => ({
+      ...prev,
+      isActive: !allEnemiesDefeated,
+      outcome: allEnemiesDefeated ? 'victory' : 'ongoing',
+      plantedBanner: {
+        x: targetCell.x,
+        y: targetCell.y,
+        remainingRounds: BANNER_OF_GLORY_DURATION_ROUNDS,
+        radiusMeters: BANNER_OF_GLORY_RADIUS_METERS,
+        shieldPerTurn: BANNER_OF_GLORY_SHIELD_HP,
+      },
+      enemy: {
+        ...prev.enemy,
+        hp: nextEnemyHp,
+      },
+      minions: updatedMinions,
+      selectedTargetId: nextSelectedTargetId,
+    }));
+
+    triggerFloatingStatus(
+      targetCell,
+      `ESTANDARTE · JUSTIÇA ${BANNER_OF_GLORY_DURATION_ROUNDS}R`,
+      'shield'
+    );
+
+    const bannerDetails = [
+      `-${BANNER_OF_GLORY_MP_COST} MP`,
+      `Raio ${BANNER_OF_GLORY_RADIUS_METERS.toFixed(1).replace('.', ',')}m · ${BANNER_OF_GLORY_DURATION_ROUNDS}R`,
+      `+${BANNER_OF_GLORY_SHIELD_HP} Escudo/turno`,
+    ];
+
+    if (hitSummaries.length > 0) {
+      appendLog(
+        'player',
+        `Estandarte da Glória fincou no solo atingindo ${hitSummaries.join(', ')} e ergueu uma Área de Energia da Justiça (6,0m · +${BANNER_OF_GLORY_SHIELD_HP} escudo no início dos turnos por ${BANNER_OF_GLORY_DURATION_ROUNDS} rodadas)!`,
+        'ESTANDARTE DA GLÓRIA',
+        bannerDetails.join(' · ')
+      );
+    } else {
+      appendLog(
+        'player',
+        `Estandarte da Glória fincou no solo erguendo uma Área de Energia da Justiça (raio 6,0m): aliados na área ganham +${BANNER_OF_GLORY_SHIELD_HP} pontos de escudo no início de seus turnos por ${BANNER_OF_GLORY_DURATION_ROUNDS} rodadas!`,
+        'ESTANDARTE DA GLÓRIA',
+        bannerDetails.join(' · ')
+      );
+    }
+
+    if (allEnemiesDefeated) {
+      appendLog(
+        'victory',
+        `VITÓRIA! O impacto do Estandarte da Glória abateu ${defeatedNames.join(' e ')}!`,
+        'GLÓRIA'
+      );
+      scheduleTimeout(() => {
+        if (sessionIdRef.current === sessionId) gameAudio.playVictoryFanfare();
+      }, 280);
+    } else if (defeatedNames.length > 0) {
+      appendLog(
+        'player',
+        `${defeatedNames.join(' e ')} foi abatido(a) pelo Estandarte da Glória!`,
+        'ABATE'
+      );
+    }
   };
 
   const executeGallantCharge = async (x: number, y: number) => {
@@ -4359,6 +5191,11 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       return;
     }
 
+    if (cur.isBannerOfGloryModeActive && !cur.player.hasActed) {
+      await executeBannerOfGlory({ x, y });
+      return;
+    }
+
     if (cur.isGallantChargeModeActive && !cur.player.hasActed) {
       await executeGallantCharge(x, y);
       return;
@@ -4392,6 +5229,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       cur.enemy.hp > 0 &&
       cur.enemy.stunnedTurns <= 0 &&
       !cur.enemy.tankBusterCharging &&
+      !cur.enemy.stackMarkerCharging &&
       getDistanceToEnemy(
         { x: cur.player.x, y: cur.player.y },
         { x: cur.enemy.x, y: cur.enemy.y },
@@ -5167,6 +6005,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
         ...prev,
         isMoveModeActive: false,
         isGallantChargeModeActive: false,
+        isBannerOfGloryModeActive: false,
         player: {
           ...prev.player,
           ep: nextPlayerEp,
@@ -5194,6 +6033,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
         ...prev,
         isMoveModeActive: false,
         isGallantChargeModeActive: false,
+        isBannerOfGloryModeActive: false,
         player: {
           ...prev.player,
           ep: nextPlayerEp,
@@ -5928,6 +6768,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       isMoveModeActive: false,
       isFireBreathModeActive: false,
       isGallantChargeModeActive: false,
+      isBannerOfGloryModeActive: false,
       isConsecrationModeActive: !prev.isConsecrationModeActive,
     }));
   };
@@ -6626,6 +7467,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       isFireBreathModeActive: false,
       isGallantChargeModeActive: false,
       isConsecrationModeActive: false,
+      isBannerOfGloryModeActive: false,
       player: {
         ...prev.player,
         beyondLimitTurns: nextBeyondLimitTurns,
@@ -6653,7 +7495,8 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
         { x: cur.enemy.x, y: cur.enemy.y },
         { x: cur.player.x, y: cur.player.y },
         pushMeters,
-        cur.enemy.sizeCells
+        cur.enemy.sizeCells,
+        cur.enemy.id
       );
 
       let finalX = cur.player.x;
@@ -6776,6 +7619,13 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       ? attackingMinion.instanceId
       : 'enemy';
     const enemyName = attack.attackerName;
+    const isSlimeMotherBasic =
+      attackerId === 'primary' &&
+      cur.enemy.id === 'slime_mother' &&
+      !attack.isTankBuster &&
+      !attack.isStackMarker &&
+      !attack.isLeapSlam &&
+      !attack.isHeavyBlow;
 
     const liveStats = getLivePlayerStats(cur.player, cur.enemy, cur.minions);
     const activeBonusDmg =
@@ -6833,6 +7683,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
 
     const getImpactTag = (shieldBlockedAll: boolean): string => {
       if (attack.isTankBuster) return 'IMPACTO GOSMENTO';
+      if (attack.isStackMarker) return 'COLAPSO ÁCIDO';
       if (attack.isLeapSlam) return 'SALTO GOSMENTO';
       if (attack.isOpportunityAttack) return 'ATAQUE DE OPORTUNIDADE';
       if (shieldBlockedAll) return 'ESCUDO SAGRADO';
@@ -6840,13 +7691,49 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       return 'IMPACTO';
     };
 
-    // Evaluates Sacred Shield absorption and racial survival/threshold passives after defense-mitigated damage
+    const appendStackDetails = (details: string[]) => {
+      if (!attack.isStackMarker) return;
+      const participants = attack.stackParticipants ?? 1 + (attack.stackAdjacentAllies ?? 0);
+      if (participants > 1) {
+        details.push(
+          `Dividido entre ${participants} jogadores (${attack.baseDamage} ÷ ${participants})`
+        );
+      } else {
+        details.push(`Sozinho · dano total (${attack.baseDamage})`);
+      }
+    };
+
+    const triggerStackMarkerImpactVfx = () => {
+      const bossCx = enemyPos.x * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+      const bossCy = enemyPos.y * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+      const targetCx = initialPlayerPos.x * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+      const targetCy = initialPlayerPos.y * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+      gameAudio.playStackMarkerBlast();
+      triggerViewportShake();
+      spellVfxRef.current?.playSlimeStackCollapse({
+        bossX: bossCx,
+        bossY: bossCy,
+        targetX: targetCx,
+        targetY: targetCy,
+        adjacentAllies: attack.stackAdjacentAllies ?? 0,
+      });
+    };
+
+    // Evaluates Sacred Shield + Banner Justice Shield absorption and racial survival/threshold passives after defense-mitigated damage
     const computePostDamageState = (damageTaken: number) => {
       const totalPostDefenseDamage = Math.max(0, damageTaken);
-      const currentShield = Math.max(0, cur.player.sacredShieldHp);
-      const shieldAbsorbed = Math.min(currentShield, totalPostDefenseDamage);
-      const nextSacredShieldHp = currentShield - shieldAbsorbed;
+      const currentSacred = Math.max(0, cur.player.sacredShieldHp);
+      const sacredAbsorbed = Math.min(currentSacred, totalPostDefenseDamage);
+      const nextSacredShieldHp = currentSacred - sacredAbsorbed;
       const nextSacredShieldTurns = nextSacredShieldHp > 0 ? cur.player.sacredShieldTurns : 0;
+
+      const remainingAfterSacred = totalPostDefenseDamage - sacredAbsorbed;
+      const currentBanner = Math.max(0, cur.player.bannerShieldHp);
+      const bannerAbsorbed = Math.min(currentBanner, remainingAfterSacred);
+      const nextBannerShieldHp = currentBanner - bannerAbsorbed;
+      const nextBannerShieldTurns = nextBannerShieldHp > 0 ? cur.player.bannerShieldTurns : 0;
+
+      const shieldAbsorbed = sacredAbsorbed + bannerAbsorbed;
       const hpDamage = totalPostDefenseDamage - shieldAbsorbed;
       const rawNextHp = cur.player.hp - hpDamage;
       let nextHp = Math.max(0, rawNextHp);
@@ -6888,9 +7775,13 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       }
 
       return {
+        sacredAbsorbed,
+        bannerAbsorbed,
         shieldAbsorbed,
         nextSacredShieldHp,
         nextSacredShieldTurns,
+        nextBannerShieldHp,
+        nextBannerShieldTurns,
         hpDamage,
         nextHp,
         triggeredBeyondLimit,
@@ -6908,11 +7799,18 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       post: ReturnType<typeof computePostDamageState>,
       pos: GridPos
     ) => {
-      if (post.shieldAbsorbed > 0 && post.nextSacredShieldHp === 0) {
+      if (post.sacredAbsorbed > 0 && post.nextSacredShieldHp === 0) {
         appendLog(
           'info',
-          `O escudo de Proteção Sagrada absorveu ${post.shieldAbsorbed} de dano e se rompeu.`,
+          `O escudo de Proteção Sagrada absorveu ${post.sacredAbsorbed} de dano e se rompeu.`,
           'PROTEÇÃO SAGRADA'
+        );
+      }
+      if (post.bannerAbsorbed > 0 && post.nextBannerShieldHp === 0) {
+        appendLog(
+          'info',
+          `O Escudo da Justiça (Estandarte da Glória) absorveu ${post.bannerAbsorbed} de dano e se rompeu.`,
+          'ESTANDARTE DA GLÓRIA'
         );
       }
 
@@ -6993,6 +7891,8 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
             ep: nextEp,
             sacredShieldHp: post.nextSacredShieldHp,
             sacredShieldTurns: post.nextSacredShieldTurns,
+            bannerShieldHp: post.nextBannerShieldHp,
+            bannerShieldTurns: post.nextBannerShieldTurns,
             beyondLimitUsed: post.beyondLimitUsed,
             beyondLimitTurns: post.beyondLimitTurns,
             rigidSkinDoubledLogged: post.rigidSkinDoubledLogged,
@@ -7002,19 +7902,32 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
         }));
 
         const impactDetails: string[] = [];
+        appendStackDetails(impactDetails);
         if (attack.isCritical) impactDetails.push('CRÍTICO +50%');
         if (stealthExtraDmg > 0) impactDetails.push(`+${stealthExtraDmg} Furtividade`);
         appendDefenseDetails(impactDetails, mit);
-        if (post.shieldAbsorbed > 0) {
+        if (post.sacredAbsorbed > 0) {
           impactDetails.push(
-            `-${post.shieldAbsorbed} Escudo Sagrado (${post.nextSacredShieldHp} rest.)`
+            `-${post.sacredAbsorbed} Escudo Sagrado (${post.nextSacredShieldHp} rest.)`
           );
         }
+        if (post.bannerAbsorbed > 0) {
+          impactDetails.push(
+            `-${post.bannerAbsorbed} Escudo da Justiça (${post.nextBannerShieldHp} rest.)`
+          );
+        }
+
+        const shieldSourceLabel =
+          post.sacredAbsorbed > 0 && post.bannerAbsorbed > 0
+            ? 'seus escudos'
+            : post.bannerAbsorbed > 0
+            ? 'o Escudo da Justiça'
+            : 'Proteção Sagrada';
 
         appendLog(
           post.shieldAbsorbed > 0 && post.hpDamage === 0 ? 'reaction' : 'enemy',
           post.shieldAbsorbed > 0 && post.hpDamage === 0
-            ? `${enemyName} acerta "${attack.attackName}", mas Proteção Sagrada absorveu todos os ${post.shieldAbsorbed} de dano!`
+            ? `${enemyName} acerta "${attack.attackName}", mas ${shieldSourceLabel} absorveu todos os ${post.shieldAbsorbed} de dano!`
             : `${enemyName} acerta "${attack.attackName}" causando ${post.hpDamage} de dano — você se prepara para o Contra-Ataque!`,
           getImpactTag(post.shieldAbsorbed > 0 && post.hpDamage === 0),
           impactDetails.length > 0 ? impactDetails.join(' · ') : undefined
@@ -7024,23 +7937,50 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
           gameAudio.playSlimeImpact();
           triggerViewportShake();
         }
-        triggerSlashVfx(
-          enemyPos,
-          initialPlayerPos,
-          post.hpDamage,
-          attackerLungeKey,
-          'player',
+        const counterIncomingLabel =
           post.hpDamage === 0 && mit.totalDefApplied > 0
             ? 'BLOQUEADO!'
             : attack.isTankBuster
             ? `IMPACTO GOSMENTO -${post.hpDamage}!`
+            : attack.isStackMarker
+            ? `COLAPSO ÁCIDO -${post.hpDamage}!`
             : attack.isLeapSlam
             ? `SALTO GOSMENTO -${post.hpDamage}`
             : attack.isCritical
             ? `CRÍTICO -${post.hpDamage}!`
-            : `-${post.hpDamage}`,
-          (attack.isCritical || attack.isTankBuster) && post.hpDamage > 0
-        );
+            : `-${post.hpDamage}`;
+
+        if (attack.isStackMarker) {
+          triggerStackMarkerImpactVfx();
+          if (post.hpDamage > 0) {
+            setHitTarget('player');
+            scheduleTimeout(() => setHitTarget((t) => (t === 'player' ? null : t)), 420);
+          }
+          triggerFloatingStatus(
+            initialPlayerPos,
+            counterIncomingLabel,
+            post.hpDamage > 0 ? 'crit' : 'shield'
+          );
+        } else if (isSlimeMotherBasic) {
+          triggerSlimeAcidSlamVfx(
+            enemyPos,
+            initialPlayerPos,
+            post.hpDamage,
+            counterIncomingLabel,
+            attack.isCritical && post.hpDamage > 0,
+            true
+          );
+        } else {
+          triggerSlashVfx(
+            enemyPos,
+            initialPlayerPos,
+            post.hpDamage,
+            attackerLungeKey,
+            'player',
+            counterIncomingLabel,
+            (attack.isCritical || attack.isTankBuster) && post.hpDamage > 0
+          );
+        }
         announceTriggeredPassives(post, initialPlayerPos);
         maybeApplyPoison(playerAlive);
 
@@ -7243,6 +8183,8 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
             ep: nextEp,
             sacredShieldHp: post.nextSacredShieldHp,
             sacredShieldTurns: post.nextSacredShieldTurns,
+            bannerShieldHp: post.nextBannerShieldHp,
+            bannerShieldTurns: post.nextBannerShieldTurns,
             beyondLimitUsed: post.beyondLimitUsed,
             beyondLimitTurns: post.beyondLimitTurns,
             rigidSkinDoubledLogged: post.rigidSkinDoubledLogged,
@@ -7255,10 +8197,14 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
           `-${skill.epCost} EP`,
           `+${RAISE_GUARD_PHYSICAL_DEFENSE_BONUS} Def. Fís.`,
         ];
+        appendStackDetails(guardDetails);
         if (stealthExtraDmg > 0) guardDetails.push(`+${stealthExtraDmg} Furtividade`);
         appendDefenseDetails(guardDetails, mit);
-        if (post.shieldAbsorbed > 0) {
-          guardDetails.push(`-${post.shieldAbsorbed} Escudo Sagrado`);
+        if (post.sacredAbsorbed > 0) {
+          guardDetails.push(`-${post.sacredAbsorbed} Escudo Sagrado`);
+        }
+        if (post.bannerAbsorbed > 0) {
+          guardDetails.push(`-${post.bannerAbsorbed} Escudo da Justiça`);
         }
 
         if (post.hpDamage === 0) {
@@ -7277,9 +8223,37 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
           );
         }
 
-        if (attack.isTankBuster || attack.isLeapSlam) {
+        if (attack.isStackMarker) {
+          triggerStackMarkerImpactVfx();
+        } else if (attack.isTankBuster || attack.isLeapSlam) {
           gameAudio.playSlimeImpact();
           triggerViewportShake();
+        } else if (isSlimeMotherBasic) {
+          const bossCx = enemyPos.x * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+          const bossCy = enemyPos.y * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+          const targetCx = initialPlayerPos.x * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+          const targetCy = initialPlayerPos.y * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+          const gDx = targetCx - bossCx;
+          const gDy = targetCy - bossCy;
+          const gDist = Math.hypot(gDx, gDy) || 1;
+          gameAudio.playSlimeAcidSlam(attack.isCritical);
+          setBossAcidStriking(true);
+          scheduleTimeout(() => setBossAcidStriking(false), 430);
+          setLungeState({
+            who: 'enemy',
+            dx: (gDx / gDist) * 16,
+            dy: (gDy / gDist) * 16,
+            scale: 1.08,
+          });
+          scheduleTimeout(() => setLungeState(null), 220);
+          spellVfxRef.current?.playSlimeAcidSlam({
+            startX: bossCx,
+            startY: bossCy,
+            targetX: targetCx,
+            targetY: targetCy,
+            isCritical: attack.isCritical,
+            didHit: true,
+          });
         }
         gameAudio.playParryClang();
         const playerCx = initialPlayerPos.x * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
@@ -7291,6 +8265,8 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
             ? 'GUARDA! BLOQUEADO!'
             : attack.isTankBuster
             ? `MITIGADO · -${post.hpDamage} HP`
+            : attack.isStackMarker
+            ? `COLAPSO ÁCIDO -${post.hpDamage}!`
             : `GUARDA +${RAISE_GUARD_PHYSICAL_DEFENSE_BONUS} DEF · -${post.hpDamage} HP`,
           'parry'
         );
@@ -7346,6 +8322,8 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
         hp: post.nextHp,
         sacredShieldHp: post.nextSacredShieldHp,
         sacredShieldTurns: post.nextSacredShieldTurns,
+        bannerShieldHp: post.nextBannerShieldHp,
+        bannerShieldTurns: post.nextBannerShieldTurns,
         beyondLimitUsed: post.beyondLimitUsed,
         beyondLimitTurns: post.beyondLimitTurns,
         rigidSkinDoubledLogged: post.rigidSkinDoubledLogged,
@@ -7355,21 +8333,34 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
     }));
 
     const impactDetails: string[] = [];
+    appendStackDetails(impactDetails);
     if (attack.isCritical) impactDetails.push('CRÍTICO +50%');
     if (stealthExtraDmg > 0) impactDetails.push(`+${stealthExtraDmg} Furtividade`);
     appendDefenseDetails(impactDetails, mit);
-    if (post.shieldAbsorbed > 0) {
+    if (post.sacredAbsorbed > 0) {
       impactDetails.push(
-        `-${post.shieldAbsorbed} Escudo Sagrado (${post.nextSacredShieldHp} rest.)`
+        `-${post.sacredAbsorbed} Escudo Sagrado (${post.nextSacredShieldHp} rest.)`
       );
     }
+    if (post.bannerAbsorbed > 0) {
+      impactDetails.push(
+        `-${post.bannerAbsorbed} Escudo da Justiça (${post.nextBannerShieldHp} rest.)`
+      );
+    }
+
+    const defaultShieldLabel =
+      post.sacredAbsorbed > 0 && post.bannerAbsorbed > 0
+        ? 'Seus escudos'
+        : post.bannerAbsorbed > 0
+        ? 'O Escudo da Justiça'
+        : 'Proteção Sagrada';
 
     appendLog(
       post.shieldAbsorbed > 0 && post.hpDamage === 0 ? 'reaction' : 'enemy',
       post.shieldAbsorbed > 0 && post.hpDamage === 0
-        ? `${enemyName} acerta "${attack.attackName}", mas Proteção Sagrada absorveu todos os ${post.shieldAbsorbed} de dano (0 dano na Vida)!`
+        ? `${enemyName} acerta "${attack.attackName}", mas ${defaultShieldLabel} absorveu todos os ${post.shieldAbsorbed} de dano (0 dano na Vida)!`
         : post.shieldAbsorbed > 0
-        ? `${enemyName} acerta "${attack.attackName}": Proteção Sagrada absorveu ${post.shieldAbsorbed} de dano e você sofreu ${post.hpDamage} de dano na Vida!`
+        ? `${enemyName} acerta "${attack.attackName}": ${defaultShieldLabel} absorveu ${post.shieldAbsorbed} de dano e você sofreu ${post.hpDamage} de dano na Vida!`
         : `${enemyName} acerta "${attack.attackName}" causando ${post.hpDamage} de dano a você!`,
       getImpactTag(post.shieldAbsorbed > 0 && post.hpDamage === 0),
       impactDetails.length > 0 ? impactDetails.join(' · ') : undefined
@@ -7382,6 +8373,23 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       triggerFloatingStatus(
         initialPlayerPos,
         post.hpDamage === 0 ? 'BLOQUEADO!' : `IMPACTO GOSMENTO -${post.hpDamage}!`,
+        post.hpDamage > 0 ? 'crit' : 'shield'
+      );
+      announceTriggeredPassives(post, initialPlayerPos);
+      maybeApplyPoison(playerAlive);
+    } else if (attack.isStackMarker) {
+      triggerStackMarkerImpactVfx();
+      if (post.hpDamage > 0) {
+        setHitTarget('player');
+        scheduleTimeout(() => setHitTarget((t) => (t === 'player' ? null : t)), 420);
+      }
+      triggerFloatingStatus(
+        initialPlayerPos,
+        post.hpDamage === 0
+          ? 'COLAPSO BLOQUEADO!'
+          : post.shieldAbsorbed > 0
+          ? `ESCUDO -${post.shieldAbsorbed} · -${post.hpDamage} HP`
+          : `COLAPSO ÁCIDO -${post.hpDamage}!`,
         post.hpDamage > 0 ? 'crit' : 'shield'
       );
       announceTriggeredPassives(post, initialPlayerPos);
@@ -7418,6 +8426,27 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
         sessionId
       );
       if (sessionIdRef.current !== sessionId) return;
+    } else if (isSlimeMotherBasic) {
+      triggerSlimeAcidSlamVfx(
+        enemyPos,
+        initialPlayerPos,
+        post.hpDamage,
+        post.shieldAbsorbed > 0 && post.hpDamage === 0
+          ? `ESCUDO -${post.shieldAbsorbed}!`
+          : post.shieldAbsorbed > 0
+          ? `ESCUDO -${post.shieldAbsorbed} · -${post.hpDamage} HP`
+          : post.hpDamage === 0 && mit.totalDefApplied > 0
+          ? 'BLOQUEADO!'
+          : attack.isOpportunityAttack
+          ? `-${post.hpDamage} OPORTUNIDADE`
+          : attack.isCritical
+          ? `CRÍTICO -${post.hpDamage}!`
+          : `-${post.hpDamage}`,
+        attack.isCritical && post.hpDamage > 0,
+        true
+      );
+      announceTriggeredPassives(post, initialPlayerPos);
+      maybeApplyPoison(playerAlive);
     } else {
       triggerSlashVfx(
         enemyPos,
@@ -7483,7 +8512,8 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
     combat.currentTurn === 'player' &&
     combat.isActive &&
     !combat.awaitingReaction &&
-    !combat.isAnimatingMove;
+    !combat.isAnimatingMove &&
+    bossIntroPhase === 'none';
   const isStunned = combat.player.stunnedTurns > 0;
   const isPlayerActiveGlow =
     combat.isActive && combat.currentTurn === 'player' && combat.player.hp > 0 && !isStunned;
@@ -7555,25 +8585,13 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       ? `Turno da Slime Mãe · Rodada ${combat.round}`
       : `Turno do Goblin · Rodada ${combat.round}`;
 
-  const turnStatusStyle =
-    combat.outcome === 'victory'
-      ? 'bg-[#112e1f] border-[#2e8555] text-[#86efac]'
-      : combat.outcome === 'defeat'
-      ? 'bg-[#361111] border-[#a83232] text-[#fca5a5]'
-      : combat.awaitingReaction
-      ? 'bg-[#3d260b] border-[#d9a043] text-[#fde68a]'
-      : combat.currentTurn === 'player' && isStunned
-      ? 'bg-[#3b2c0a] border-[#eab308] text-[#fef08a]'
-      : combat.currentTurn === 'player'
-      ? 'bg-[#14301f] border-[#2e8555] text-[#86efac]'
-      : 'bg-[#361412] border-[#a83232] text-[#fca5a5]';
-
   const hoveredCellData = hoveredCellKey ? reachableMap.get(hoveredCellKey) : null;
   const hoveredChargeData = hoveredChargeResolved?.chargeData ?? null;
   const primaryAdjacentForOpp =
     combat.enemy.hp > 0 &&
     combat.enemy.stunnedTurns <= 0 &&
     !combat.enemy.tankBusterCharging &&
+    !combat.enemy.stackMarkerCharging &&
     getDistanceToEnemy(
       { x: combat.player.x, y: combat.player.y },
       { x: combat.enemy.x, y: combat.enemy.y },
@@ -7600,6 +8618,17 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
   const playerInsideHoveredConsecration =
     combat.isConsecrationModeActive &&
     hoveredConsecrationAreaSet.has(`${combat.player.x},${combat.player.y}`);
+  const enemiesInsideHoveredBannerCount = combat.isBannerOfGloryModeActive
+    ? (combat.enemy.hp > 0 &&
+      getEnemyOccupiedCells(
+        { x: combat.enemy.x, y: combat.enemy.y },
+        combat.enemy.sizeCells
+      ).some((c) => hoveredBannerAreaSet.has(`${c.x},${c.y}`))
+        ? 1
+        : 0) +
+      livingMinions.filter((m) => hoveredBannerAreaSet.has(`${m.x},${m.y}`)).length
+    : 0;
+  const isSlimeHpHidden = combat.enemy.id === 'slime_mother';
 
   const consecrationScaledHeal = getScaledHealAmount(CONSECRATION_HEAL, character);
 
@@ -7613,6 +8642,12 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
     ? `Aguardando ação inimiga...`
     : isStunned
     ? 'Atordoado — encerrando turno automaticamente...'
+    : combat.isBannerOfGloryModeActive
+    ? hoveredCellKey && bannerCastRangeSet.has(hoveredCellKey)
+      ? enemiesInsideHoveredBannerCount > 0
+        ? `Estandarte da Glória (raio 6,0m): atingirá ${enemiesInsideHoveredBannerCount} inimigo(s) com ${BANNER_OF_GLORY_MAGIC_DAMAGE} Mág. + Ataque Fís. e criará Área da Justiça (+${BANNER_OF_GLORY_SHIELD_HP} Escudo/turno · ${BANNER_OF_GLORY_DURATION_ROUNDS}R · -${BANNER_OF_GLORY_MP_COST} MP)`
+        : `Estandarte da Glória (raio 6,0m): clique para fincar a lança e erguer a Área da Justiça (+${BANNER_OF_GLORY_SHIELD_HP} Escudo/turno · ${BANNER_OF_GLORY_DURATION_ROUNDS}R · -${BANNER_OF_GLORY_MP_COST} MP)`
+      : `Escolha onde fincar a lança do Estandarte da Glória (alcance ${BANNER_OF_GLORY_CAST_RANGE_METERS.toFixed(1).replace('.', ',')}m · raio ${BANNER_OF_GLORY_RADIUS_METERS.toFixed(1).replace('.', ',')}m · -${BANNER_OF_GLORY_MP_COST} MP)`
     : combat.isConsecrationModeActive
     ? hoveredCellKey && consecrationRangeSet.has(hoveredCellKey)
       ? playerInsideHoveredConsecration
@@ -7624,7 +8659,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
       ? hoveredChargeData.hitsEnemy
         ? `Investida Galante: ${hoveredChargeData.distanceMeters.toFixed(1).replace('.', ',')}m — ATINGE ${combat.enemy.name} com +${GALLANT_CHARGE_BONUS_DAMAGE} Ataque Físico! (-${GALLANT_CHARGE_EP_COST} EP)`
         : `Investida Galante: avançar ${hoveredChargeData.distanceMeters.toFixed(1).replace('.', ',')}m em linha reta (sem inimigo no trajeto · -${GALLANT_CHARGE_EP_COST} EP)`
-      : 'Escolha uma casa dourada em linha reta (até 9,0m · atravessa e golpeia inimigos com +5 Ataque Físico)'
+      : 'Escolha uma casa ciano em linha reta (até 9,0m · atravessa e golpeia inimigos com +5 Ataque Físico)'
     : combat.isFireBreathModeActive
     ? enemyInsideHoveredFireCone
       ? 'Alvo dentro do cone de 6,0m! Clique para lançar Baforada de Fogo (-9 MP)'
@@ -7682,6 +8717,9 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
 
   const canGallantCharge =
     canOpenStandardAction && combat.player.ep >= GALLANT_CHARGE_EP_COST;
+
+  const canBannerOfGlory =
+    isKnight && canOpenStandardAction && combat.player.mp >= BANNER_OF_GLORY_MP_COST;
 
   // Rogue action availability
   const isEnemyInDaggerThrowRange = distCells <= DAGGER_THROW_RANGE_CELLS;
@@ -7827,32 +8865,41 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
     };
   };
 
+  const isTargetingHintActive =
+    combat.isMoveModeActive ||
+    combat.isFireBreathModeActive ||
+    combat.isGallantChargeModeActive ||
+    combat.isConsecrationModeActive ||
+    combat.isBannerOfGloryModeActive;
+
+  const activeArenaMapUrl = getArenaMapUrl(combat.enemy.id) || BATTLEGROUND_MAP_URL;
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Arena de Combate Tático"
-      className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4"
+      className="fixed inset-0 w-screen h-screen bg-[#121811] z-50 overflow-hidden"
     >
       {/* Animated Combat Start Banner */}
       {showBanner && (
         <div
           key={bannerKey}
-          className="fixed top-5 left-1/2 z-[60] pointer-events-none animate-combat-banner"
+          className="fixed top-6 left-1/2 z-[60] pointer-events-none animate-combat-banner"
         >
           <div
             className={`border-2 px-8 py-3 rounded-sm shadow-2xl text-center ${
               combat.enemy.isBoss
-                ? 'bg-gradient-to-r from-[#0d2818] via-[#2b1a0c] to-[#0d2818] border-[#4ade80]'
+                ? 'bg-gradient-to-r from-[#0d2818] via-[#1c2b14] to-[#0d2818] border-[#4ade80]'
                 : 'bg-gradient-to-r from-[#3a1210] via-[#2b1a0c] to-[#3a1210] border-[#d9a043]'
             }`}
           >
             <h2
               className={`font-serif text-xl sm:text-2xl font-black tracking-widest ${
-                combat.enemy.isBoss ? 'text-[#86efac]' : 'text-[#f3d189]'
+                combat.enemy.isBoss ? 'text-[#bef264]' : 'text-[#f3d189]'
               }`}
             >
-              {combat.enemy.isBoss ? 'BATALHA DE CHEFE' : 'COMBATE INICIADO'}
+              {combat.enemy.isBoss ? `${combat.enemy.name.toUpperCase()} DESPERTA!` : 'COMBATE INICIADO'}
             </h2>
             <p className="text-xs font-mono tabular-nums text-[#e3d2b8] mt-0.5">
               Iniciativa: {heroDisplayName} ({combat.player.initiative}) vs {combat.enemy.name} (
@@ -7862,363 +8909,53 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
         </div>
       )}
 
-      <div className="medieval-panel rounded-md max-w-[1400px] w-full shadow-2xl relative flex flex-col h-[95vh] max-h-[96vh]">
-        {/* Top Arena Header & Initiative Tracker */}
-        <div className="p-3 sm:p-4 border-b border-[#473421] bg-[#130e0a] shrink-0 space-y-2.5 rounded-t-md">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div
-                className={`w-9 h-9 rounded-sm border flex items-center justify-center shrink-0 ${
-                  combat.enemy.isBoss
-                    ? 'bg-[#0f291a] border-[#22c55e] text-[#4ade80]'
-                    : 'bg-[#291c0f] border-[#8c6430] text-[#e5b865]'
-                }`}
-              >
-                {combat.enemy.isBoss ? (
-                  <Crown className="w-4 h-4" />
-                ) : (
-                  <Swords className="w-4 h-4" />
-                )}
-              </div>
-              <div className="min-w-0">
-                <h2 className="font-serif text-base font-bold text-[#e5b865] leading-tight truncate tracking-wide">
-                  {combat.enemy.isBoss ? 'Covil da Slime Mãe' : 'Emboscada na Floresta'}
-                </h2>
-                <p className="text-xs text-[#a6957e]">
-                  Grid 16×10 ·{' '}
-                  {combat.enemy.isBoss
-                    ? 'Chefe Grande (2×2) · Desloc. 9,0m'
-                    : 'Ação de Movimento 6,0m'}{' '}
-                  · Distância:{' '}
-                  <span className="font-mono tabular-nums text-[#e5b865] font-semibold">
-                    {distMeters}m
-                  </span>
-                </p>
-              </div>
-            </div>
+      {/* Boss Roar Edge Vignette Flash */}
+      {bossIntroPhase === 'roaring' && (
+        <div
+          aria-hidden="true"
+          className="boss-intro-roar-vignette fixed inset-0 z-[55] pointer-events-none"
+        />
+      )}
 
-            {/* Encounter Selector + Audio, Camera, Restart & Close Toolbar */}
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Encounter Switcher: Goblin vs Boss Slime Mãe */}
-              <div
-                role="group"
-                aria-label="Selecionar encontro"
-                className="bg-[#1b140e] border border-[#4a3622] rounded-sm p-1 flex items-center gap-1 text-xs"
-              >
-                <button
-                  type="button"
-                  onClick={() => startNewCombat('goblin')}
-                  title="Enfrentar Goblin Espadachim (Inimigo padrão)"
-                  className={`h-7 px-2.5 rounded-xs font-serif font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer border ${
-                    selectedEnemyId === 'goblin'
-                      ? 'bg-[#36230e] border-[#c9943b] text-[#f3d189]'
-                      : 'bg-[#211912] border-transparent text-[#8a7863] hover:text-[#ede3d2]'
-                  }`}
-                >
-                  <PortraitImage
-                    src={GOBLIN_PORTRAIT_URL}
-                    alt="Goblin"
-                    variant="enemy"
-                    className="w-4 h-4 rounded-full object-cover object-top shrink-0"
-                  />
-                  <span>Goblin</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => startNewCombat('slime_mother')}
-                  title="Enfrentar Boss: Slime Mãe (400 HP · Grande 2×2 · Chefe Abissal)"
-                  className={`h-7 px-2.5 rounded-xs font-serif font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer border ${
-                    selectedEnemyId === 'slime_mother'
-                      ? 'bg-[#102e1d] border-[#22c55e] text-[#86efac]'
-                      : 'bg-[#211912] border-transparent text-[#8a7863] hover:text-[#bbf7d0]'
-                  }`}
-                >
-                  <PortraitImage
-                    src={SLIME_MOTHER_PORTRAIT_URL}
-                    alt="Slime Mãe"
-                    variant="enemy"
-                    className="w-4 h-4 rounded-full object-cover object-top shrink-0"
-                  />
-                  <Crown className="w-3 h-3 text-[#4ade80] shrink-0" />
-                  <span>Boss: Slime Mãe</span>
-                </button>
-              </div>
-              <div className="bg-[#1b140e] border border-[#4a3622] rounded-sm p-1 flex items-center gap-1 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setAudioPrefs(gameAudio.toggleMusic())}
-                  title="Ligar ou desligar trilha sonora"
-                  className={`h-7 px-2.5 rounded-xs font-serif font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer ${
-                    audioPrefs.musicEnabled && !audioPrefs.isMuted
-                      ? 'bg-[#36230e] text-[#e5b865] border border-[#8c6430]'
-                      : 'bg-[#211912] text-[#8a7863] border border-transparent hover:text-[#ede3d2]'
-                  }`}
-                >
-                  <Music className="w-3.5 h-3.5" />
-                  <span className="hidden md:inline">
-                    {audioPrefs.musicEnabled && !audioPrefs.isMuted ? 'Música ON' : 'Música OFF'}
-                  </span>
-                </button>
+      {/* Fullscreen Edge-to-Edge Immersive Grid Viewport */}
+      <div
+        ref={viewportRef}
+        onContextMenu={(e) => e.preventDefault()}
+        onMouseDown={handleViewportMouseDown}
+        onMouseLeave={() => setHoveredToken(null)}
+        onTouchStart={handleViewportTouchStart}
+        onTouchMove={handleViewportTouchMove}
+        onTouchEnd={handleViewportTouchEnd}
+        className={`camera-viewport absolute inset-0 w-full h-full overflow-hidden select-none ${
+          isDragging ? 'is-dragging' : ''
+        } ${isViewportShaking ? 'viewport-shake' : ''}`}
+      >
+        {/* Seamless Full-Bleed Atmospheric Battleground Backdrop (Zero Black Bars) */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 pointer-events-none bg-cover bg-center scale-110 blur-xl opacity-45"
+          style={{ backgroundImage: `url("${activeArenaMapUrl}")` }}
+        />
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_center,rgba(14,18,12,0.12)_0%,rgba(10,12,9,0.72)_100%)]"
+        />
 
-                <button
-                  type="button"
-                  onClick={() => setAudioPrefs(gameAudio.toggleMuteAll())}
-                  title={audioPrefs.isMuted ? 'Ativar áudio' : 'Silenciar todo o áudio'}
-                  aria-label={audioPrefs.isMuted ? 'Ativar áudio' : 'Silenciar todo o áudio'}
-                  className={`w-7 h-7 rounded-xs flex items-center justify-center transition-colors cursor-pointer ${
-                    audioPrefs.isMuted
-                      ? 'bg-[#3b1515] text-[#f87171] hover:bg-[#4c1c1c]'
-                      : 'bg-[#211912] text-[#60c28c] hover:bg-[#2c2218]'
-                  }`}
-                >
-                  {audioPrefs.isMuted ? (
-                    <VolumeX className="w-3.5 h-3.5" />
-                  ) : (
-                    <Volume2 className="w-3.5 h-3.5" />
-                  )}
-                </button>
-
-                <div className="w-px h-4 bg-[#4a3622] mx-0.5" />
-
-                <button
-                  type="button"
-                  onClick={centerCamera}
-                  title="Centralizar câmera no mapa"
-                  className="h-7 px-2 rounded-xs bg-[#211912] hover:bg-[#2c2218] text-[#e5b865] font-serif font-semibold flex items-center gap-1 transition-colors whitespace-nowrap cursor-pointer"
-                >
-                  <LocateFixed className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Centralizar</span>
-                </button>
-
-                <div className="w-px h-4 bg-[#4a3622] mx-0.5" />
-
-                <button
-                  type="button"
-                  onClick={() => setZoomCentered(camera.zoom - ZOOM_STEP)}
-                  title="Diminuir zoom"
-                  aria-label="Diminuir zoom"
-                  className="w-7 h-7 rounded-xs bg-[#211912] hover:bg-[#2c2218] text-[#e6d7be] flex items-center justify-center transition-colors cursor-pointer"
-                >
-                  <ZoomOut className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setZoomCentered(1)}
-                  title="Resetar zoom para 100%"
-                  className="font-mono tabular-nums text-[#e5b865] text-xs px-1.5 font-semibold hover:underline cursor-pointer"
-                >
-                  {Math.round(camera.zoom * 100)}%
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setZoomCentered(camera.zoom + ZOOM_STEP)}
-                  title="Aumentar zoom"
-                  aria-label="Aumentar zoom"
-                  className="w-7 h-7 rounded-xs bg-[#211912] hover:bg-[#2c2218] text-[#e6d7be] flex items-center justify-center transition-colors cursor-pointer"
-                >
-                  <ZoomIn className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsCombatLogOpen((v) => !v)}
-                title={isCombatLogOpen ? 'Ocultar Log de Combate' : 'Mostrar Log de Combate'}
-                className={`h-9 px-3 rounded-sm text-xs font-serif font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer border ${
-                  isCombatLogOpen
-                    ? 'bg-[#30200f] border-[#c9943b] text-[#f3d189]'
-                    : 'medieval-btn-iron'
-                }`}
-              >
-                <ScrollText className="w-3.5 h-3.5" />
-                <span>Log</span>
-                <span className="font-mono tabular-nums text-[10px] px-1 py-0.2 bg-[#140e0a] border border-[#5c4327] rounded-xs text-[#e5b865]">
-                  {combatLog.length}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => startNewCombat()}
-                title="Reiniciar combate"
-                className="medieval-btn-iron h-9 px-3 rounded-sm text-xs font-serif font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Reiniciar</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Fechar arena"
-                className="medieval-btn-iron w-9 h-9 rounded-sm flex items-center justify-center transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Initiative Order Bar */}
-          <div className="bg-[#1a140e] border border-[#473421] rounded-sm px-3 py-2 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3 overflow-x-auto">
-              <span className="font-serif text-xs font-bold text-[#a6957e] whitespace-nowrap shrink-0">
-                Ordem dos Turnos
-              </span>
-              <div className="flex items-center gap-2.5 shrink-0">
-                {initiativeOrder.map((unit) => (
-                  <div
-                    key={unit.id}
-                    className={`flex items-center gap-2 px-2.5 py-1 rounded-xs border text-xs transition-colors ${
-                      unit.isActive && combat.isActive
-                        ? 'bg-[#30200f] border-[#c9943b] text-[#f8e7c4]'
-                        : 'bg-[#120d09] border-[#3d2d1e] text-[#9c8a74]'
-                    } ${unit.isDead ? 'opacity-45 line-through' : ''}`}
-                  >
-                    <PortraitImage
-                      src={unit.avatar}
-                      alt={unit.name}
-                      variant={unit.variant}
-                      className="w-5 h-5 rounded-full object-cover object-top shrink-0"
-                    />
-                    <span className="font-serif font-bold whitespace-nowrap">{unit.name}</span>
-                    <span className="font-mono tabular-nums text-[11px] text-[#e5b865]">
-                      Init {unit.initiative}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div
-              className={`px-3 py-1 rounded-xs border font-serif font-bold text-xs tracking-wider whitespace-nowrap shrink-0 ${turnStatusStyle}`}
-            >
-              {turnStatusLabel}
-            </div>
-          </div>
-
-          {/* Boss Encounter Status Bar */}
-          {combat.enemy.isBoss && (
-            <div className="rounded-sm px-3 py-2 border flex flex-wrap items-center justify-between gap-3 transition-colors bg-[#0f1f16] border-[#245938]">
-              <div className="flex items-center gap-3 min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <Crown className="w-4 h-4 text-[#4ade80]" />
-                  <span className="font-serif text-xs font-bold text-[#bbf7d0] whitespace-nowrap">
-                    {combat.enemy.name}
-                  </span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-xs bg-[#132f1e] border border-[#22c55e]/50 text-[#86efac] whitespace-nowrap">
-                    Grande 2×2
-                  </span>
-                </div>
-
-                {/* Boss HP Bar */}
-                <div className="flex-1 min-w-[140px] max-w-[320px]">
-                  <div className="flex items-center justify-between text-[11px] font-mono tabular-nums mb-0.5">
-                    <span className="text-[#86efac] font-bold">
-                      HP {combat.enemy.hp}/{combat.enemy.maxHp}
-                    </span>
-                    <span className="text-[#7dd3fc]">
-                      MP {combat.enemy.mp}/{combat.enemy.maxMp}
-                    </span>
-                  </div>
-                  <div className="w-full h-2 bg-[#08120c] border border-[#1d452c] rounded-xs overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-[#15803d] via-[#22c55e] to-[#4ade80] transition-all duration-300"
-                      style={{ width: `${enemyHpPct}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-xs bg-[#171229] border border-[#8b5cf6]/60 text-[#ddd6fe]">
-                  <Eye className="w-3 h-3 text-[#c4b5fd]" />
-                  Visão Verdadeira
-                </span>
-
-                {combat.enemy.skills.leapSlam && (
-                  <span
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-xs border ${
-                      combat.enemy.leapSlamCooldown > 0
-                        ? 'bg-[#1c1712] border-[#4a3622] text-[#a6957e]'
-                        : 'bg-[#122e1c] border-[#4ade80]/60 text-[#bef264] font-semibold'
-                    }`}
-                  >
-                    Salto Gosmento:{' '}
-                    {combat.enemy.leapSlamCooldown > 0
-                      ? `Recarga ${combat.enemy.leapSlamCooldown}t`
-                      : 'Pronto'}
-                  </span>
-                )}
-
-                {combat.enemy.maxMinions > 0 && (
-                  <span
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-xs border ${
-                      livingMinions.length > 0
-                        ? 'bg-[#132f1e] border-[#22c55e]/70 text-[#86efac] font-semibold'
-                        : 'bg-[#141c17] border-[#294734] text-[#9ebaa8]'
-                    }`}
-                  >
-                    Slimes Pequenas: {livingMinions.length}/{combat.enemy.maxMinions}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Main Split Arena Body (Grid + Always-Visible Combat Log Sidebar) */}
-        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-3 p-3 bg-[#15100c] overflow-y-auto lg:overflow-hidden">
-          {/* 16x10 Roll20 Tactical Grid Viewport */}
-          <div className="flex-1 min-w-0 flex flex-col bg-[#110c09] border border-[#4a3622] rounded-sm p-2.5 sm:p-3 min-h-[390px] lg:min-h-0">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs mb-2 shrink-0">
-              <span className="flex items-center gap-1.5 text-[#c7b59e]">
-                <Compass className="w-3.5 h-3.5 text-[#d9a043]" />
-                <span>Arraste o mapa · Scroll para zoom · Passe o mouse nos tokens</span>
-              </span>
-              <span
-                className={`font-mono tabular-nums ${
-                  combat.isConsecrationModeActive
-                    ? 'text-[#fde68a] font-semibold'
-                    : combat.isGallantChargeModeActive
-                    ? 'text-[#fde047] font-semibold'
-                    : combat.isFireBreathModeActive
-                    ? 'text-[#fb923c] font-semibold'
-                    : combat.isMoveModeActive && enemyAdjacentForOpportunity
-                    ? 'text-[#f3c46b] font-semibold'
-                    : 'text-[#84c4e6]'
-                }`}
-              >
-                {moveHintText}
-              </span>
-            </div>
-
-            <div
-              ref={viewportRef}
-              onContextMenu={(e) => e.preventDefault()}
-              onMouseDown={handleViewportMouseDown}
-              onMouseLeave={() => setHoveredToken(null)}
-              onTouchStart={handleViewportTouchStart}
-              onTouchMove={handleViewportTouchMove}
-              onTouchEnd={handleViewportTouchEnd}
-              className={`camera-viewport flex-1 w-full min-h-[340px] sm:min-h-[400px] lg:min-h-0 rounded-sm border border-[#4a3622] relative overflow-hidden select-none ${
-                isDragging ? 'is-dragging' : ''
-              } ${isViewportShaking ? 'viewport-shake' : ''}`}
-            >
-              {/* Transformable Grid Container */}
-              <div
-                className={`battle-grid-container select-none ${
-                  camera.smooth ? 'smooth-camera' : ''
-                }`}
-                style={{
-                  transform: `translate3d(${camera.x}px, ${camera.y}px, 0) scale(${camera.zoom})`,
-                  backgroundImage: `linear-gradient(rgba(16, 10, 5, 0.12), rgba(16, 10, 5, 0.22)), url("${BATTLEGROUND_MAP_URL}")`,
-                }}
-              >
+        {/* Transformable 16x10 Grid Container */}
+        <div
+          className={`battle-grid-container select-none ${
+            camera.smooth ? 'smooth-camera' : ''
+          } ${isTargetingHintActive ? 'is-targeting-active' : ''}`}
+          style={{
+            transform: `translate3d(${camera.x}px, ${camera.y}px, 0) scale(${camera.zoom})`,
+            backgroundImage: `linear-gradient(rgba(16, 10, 5, 0.08), rgba(16, 10, 5, 0.16)), url("${activeArenaMapUrl}")`,
+          }}
+        >
                 {/* 16x10 Grid Cells */}
                 {Array.from({ length: GRID_ROWS }).map((_, row) =>
                   Array.from({ length: GRID_COLS }).map((__, col) => {
                     const key = `${col},${row}`;
-                    const obstacle = isObstacleCell(col, row);
+                    const obstacle = isObstacleCell(col, row, combat.enemy.id);
                     const reachable = reachableMap.get(key);
                     const chargeTarget = gallantChargeMap.get(key);
                     const inHoveredPath = hoveredPathSet.has(key);
@@ -8230,6 +8967,13 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                       combat.isConsecrationModeActive &&
                       inConsecrationRange &&
                       hoveredCellKey === key;
+                    const inBannerCastRange = bannerCastRangeSet.has(key);
+                    const inBannerAoePreview = hoveredBannerAreaSet.has(key);
+                    const isBannerCenter =
+                      combat.isBannerOfGloryModeActive &&
+                      inBannerCastRange &&
+                      hoveredCellKey === key;
+                    const inJusticeBannerZone = plantedBannerAreaSet.has(key);
                     const hasPlayer =
                       combat.player.x === col &&
                       combat.player.y === row &&
@@ -8253,6 +8997,13 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                     );
                     const hasAnyEnemyHere = isEnemyFootprint || Boolean(cellMinion);
                     const inSlimeSlamAoe = slimeSlamCells.has(key);
+                    const inStackMarkerZone =
+                      combat.enemy.stackMarkerCharging &&
+                      combat.enemy.stackMarkerTarget === 'player' &&
+                      combat.enemy.hp > 0 &&
+                      combat.player.hp > 0 &&
+                      Math.max(Math.abs(col - combat.player.x), Math.abs(row - combat.player.y)) ===
+                        1;
 
                     return (
                       <div
@@ -8264,6 +9015,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                             chargeTarget ||
                             combat.isFireBreathModeActive ||
                             inConsecrationRange ||
+                            inBannerCastRange ||
                             (combat.isGallantChargeModeActive && isEnemyFootprint)
                           ) {
                             setHoveredCellKey(key);
@@ -8289,8 +9041,12 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                         className={`grid-cell flex items-center justify-center ${
                           obstacle ? 'obstacle' : ''
                         } ${hasBossFootprint ? 'boss-footprint-cell' : ''} ${
+                          inJusticeBannerZone ? 'in-justice-banner-zone' : ''
+                        } ${
                           inSlimeSlamAoe ? 'in-slime-slam-aoe' : ''
-                        } ${reachable ? 'in-move-range' : ''} ${
+                        } ${inStackMarkerZone ? 'in-stack-marker-zone' : ''} ${
+                          reachable ? 'in-move-range' : ''
+                        } ${
                           isRogue && combat.isMoveModeActive && backstabCellsSet.has(key)
                             ? 'in-backstab-zone'
                             : ''
@@ -8304,8 +9060,14 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                           inConsecrationArea ? 'in-consecration-aoe' : ''
                         } ${isConsecrationCenter ? 'in-consecration-center' : ''} ${
                           inConsecrationArea && hasPlayer ? 'in-consecration-ally' : ''
+                        } ${inBannerCastRange ? 'in-banner-cast-range' : ''} ${
+                          inBannerAoePreview ? 'in-banner-aoe-preview' : ''
+                        } ${inBannerAoePreview && hasAnyEnemyHere ? 'in-banner-aoe-enemy' : ''} ${
+                          isBannerCenter ? 'in-banner-center' : ''
                         } ${
-                          (combat.isFireBreathModeActive && !hasPlayer) || inConsecrationRange
+                          (combat.isFireBreathModeActive && !hasPlayer) ||
+                          inConsecrationRange ||
+                          inBannerCastRange
                             ? 'cursor-crosshair'
                             : hasPlayer || hasAnyEnemyHere
                             ? 'cursor-pointer'
@@ -8330,18 +9092,33 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                         {chargeTarget &&
                           !hasPlayer &&
                           !hasAnyEnemyHere &&
-                          hoveredCellKey === key && (
+                          (hoveredCellKey === key ? (
                             <span
                               className={`font-mono tabular-nums text-[10px] font-bold px-1 py-0.5 rounded-xs pointer-events-none ${
                                 chargeTarget.hitsEnemy
-                                  ? 'text-[#fef08a] bg-[#5c1614]/95 border border-[#fbbf24]'
-                                  : 'text-[#fef08a] bg-[#2a1a08]/95 border border-[#f59e0b]'
+                                  ? 'text-[#fef08a] bg-[#5c1614]/95 border border-[#67e8f9]'
+                                  : 'text-[#cffafe] bg-[#083344]/95 border border-[#22d3ee]'
                               }`}
                             >
                               {chargeTarget.distanceMeters.toFixed(1).replace('.', ',')}m
                               {chargeTarget.hitsEnemy ? ' ⚔' : ''}
                             </span>
-                          )}
+                          ) : (
+                            <span
+                              aria-hidden="true"
+                              className={`text-sm font-black leading-none pointer-events-none select-none drop-shadow-[0_1px_4px_rgba(0,0,0,0.95)] ${
+                                inChargePath ? 'text-[#ecfeff]' : 'text-[#67e8f9]/85'
+                              }`}
+                            >
+                              {col > combat.player.x
+                                ? '▸'
+                                : col < combat.player.x
+                                ? '◂'
+                                : row > combat.player.y
+                                ? '▾'
+                                : '▴'}
+                            </span>
+                          ))}
 
                         {isConsecrationCenter && !hasPlayer && !hasAnyEnemyHere && (
                           <span className="font-mono tabular-nums text-[9px] font-bold text-[#fef9c3] bg-[#362609]/95 border border-[#fde047] px-1 py-0.5 rounded-xs pointer-events-none whitespace-nowrap">
@@ -8349,7 +9126,13 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                           </span>
                         )}
 
-                        {/* Player Token with Active-Turn Golden Glow, Arcane Armor, Sacred Shield, Stealth & Poison */}
+                        {isBannerCenter && !hasPlayer && !hasAnyEnemyHere && (
+                          <span className="font-mono tabular-nums text-[9px] font-bold text-[#fef08a] bg-[#451a03]/95 border border-[#facc15] px-1 py-0.5 rounded-xs pointer-events-none whitespace-nowrap">
+                            LANÇA 6m
+                          </span>
+                        )}
+
+                        {/* Player Token with Active-Turn Golden Glow, Arcane Armor, Sacred Shield, Justice Shield, Stealth & Poison */}
                         {hasPlayer && (
                           <div
                             className={`token token-player relative overflow-visible ${
@@ -8379,6 +9162,9 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                             )}
                             {combat.player.sacredShieldHp > 0 && combat.player.hp > 0 && (
                               <span className="token-sacred-shield-ring" aria-hidden="true" />
+                            )}
+                            {combat.player.bannerShieldHp > 0 && combat.player.hp > 0 && (
+                              <span className="token-justice-shield-ring" aria-hidden="true" />
                             )}
 
                             <PortraitImage
@@ -8490,6 +9276,10 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                         {cellMinion && (
                           <div
                             className={`token token-enemy token-slime-minion relative overflow-visible ${
+                              spawningMinionId === cellMinion.instanceId
+                                ? 'token-slime-spawn-pop'
+                                : ''
+                            } ${
                               activeTarget.id === cellMinion.instanceId &&
                               (combat.enemy.hp > 0 || livingMinions.length > 1)
                                 ? 'token-target-selected'
@@ -8513,9 +9303,6 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                                 cellMinion.facing === 'right' ? '-scale-x-100' : 'scale-x-100'
                               }`}
                             />
-                            <span className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 z-20 px-1 py-0 rounded-xs bg-[#09180f]/95 border border-[#4ade80]/70 font-mono text-[8px] font-bold text-[#bef264] whitespace-nowrap pointer-events-none">
-                              {cellMinion.hp}/{cellMinion.maxHp}
-                            </span>
                             {cellMinion.tauntedTurns > 0 && (
                               <span className="taunt-tag-label">
                                 PROVOCADO {cellMinion.tauntedTurns}R
@@ -8533,6 +9320,230 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                   })
                 )}
 
+                {/* TACTICAL PERIMETER & TRAJECTORY SVG LAYER (Clean Non-Clashing Area Boundaries) */}
+                {(combat.plantedBanner ||
+                  (combat.isBannerOfGloryModeActive && hoveredCellKey && bannerCastRangeSet.has(hoveredCellKey)) ||
+                  (combat.isConsecrationModeActive && hoveredCellKey && consecrationRangeSet.has(hoveredCellKey)) ||
+                  (combat.isGallantChargeModeActive && hoveredChargeResolved)) && (
+                  <svg
+                    viewBox={`0 0 ${GRID_COLS * CELL_PIXEL_SIZE} ${GRID_ROWS * CELL_PIXEL_SIZE}`}
+                    width={GRID_COLS * CELL_PIXEL_SIZE}
+                    height={GRID_ROWS * CELL_PIXEL_SIZE}
+                    className={`tactical-zone-svg-overlay ${
+                      isTargetingHintActive ? 'is-dimmed' : ''
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {/* 1. Persistent Justice Energy Zone Perimeter (Dims automatically during targeting) */}
+                    {combat.plantedBanner && combat.plantedBanner.remainingRounds > 0 && (() => {
+                      const cx = combat.plantedBanner.x * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+                      const cy = combat.plantedBanner.y * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+                      const radiusPx =
+                        (combat.plantedBanner.radiusMeters / CELL_METERS) * CELL_PIXEL_SIZE;
+                      const edgeSegments: string[] = [];
+                      plantedBannerAreaSet.forEach((cellKey) => {
+                        const [xStr, yStr] = cellKey.split(',');
+                        const cxCell = Number(xStr);
+                        const cyCell = Number(yStr);
+                        const px = cxCell * CELL_PIXEL_SIZE;
+                        const py = cyCell * CELL_PIXEL_SIZE;
+                        if (!plantedBannerAreaSet.has(`${cxCell},${cyCell - 1}`)) {
+                          edgeSegments.push(`M${px} ${py + 1} H${px + CELL_PIXEL_SIZE}`);
+                        }
+                        if (!plantedBannerAreaSet.has(`${cxCell},${cyCell + 1}`)) {
+                          edgeSegments.push(
+                            `M${px} ${py + CELL_PIXEL_SIZE - 1} H${px + CELL_PIXEL_SIZE}`
+                          );
+                        }
+                        if (!plantedBannerAreaSet.has(`${cxCell - 1},${cyCell}`)) {
+                          edgeSegments.push(`M${px + 1} ${py} V${py + CELL_PIXEL_SIZE}`);
+                        }
+                        if (!plantedBannerAreaSet.has(`${cxCell + 1},${cyCell}`)) {
+                          edgeSegments.push(
+                            `M${px + CELL_PIXEL_SIZE - 1} ${py} V${py + CELL_PIXEL_SIZE}`
+                          );
+                        }
+                      });
+                      return (
+                        <g className="justice-zone-svg-group">
+                          <path
+                            d={edgeSegments.join(' ')}
+                            fill="none"
+                            stroke="#fde047"
+                            strokeWidth="2.4"
+                            strokeDasharray="8 5"
+                            className="justice-perimeter-dash"
+                            style={{ filter: 'drop-shadow(0 0 6px rgba(250, 204, 21, 0.85))' }}
+                          />
+                          <circle
+                            cx={cx}
+                            cy={cy}
+                            r={radiusPx}
+                            fill="none"
+                            stroke="rgba(254, 240, 138, 0.42)"
+                            strokeWidth="1.5"
+                            strokeDasharray="4 7"
+                          />
+                        </g>
+                      );
+                    })()}
+
+                    {/* 2. Active Estandarte da Glória 6.0m Hover Aim Circle */}
+                    {combat.isBannerOfGloryModeActive &&
+                      hoveredCellKey &&
+                      bannerCastRangeSet.has(hoveredCellKey) && (() => {
+                        const [hx, hy] = hoveredCellKey.split(',').map(Number);
+                        const cx = hx * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+                        const cy = hy * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+                        const r = (BANNER_OF_GLORY_RADIUS_METERS / CELL_METERS) * CELL_PIXEL_SIZE;
+                        return (
+                          <circle
+                            cx={cx}
+                            cy={cy}
+                            r={r}
+                            fill="none"
+                            stroke="#fef08a"
+                            strokeWidth="2.6"
+                            strokeDasharray="10 6"
+                            style={{ filter: 'drop-shadow(0 0 8px rgba(245, 158, 11, 0.95))' }}
+                          />
+                        );
+                      })()}
+
+                    {/* 3. Active Consagração 4.0m Hover Aim Circle */}
+                    {combat.isConsecrationModeActive &&
+                      hoveredCellKey &&
+                      consecrationRangeSet.has(hoveredCellKey) && (() => {
+                        const [hx, hy] = hoveredCellKey.split(',').map(Number);
+                        const cx = hx * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+                        const cy = hy * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+                        const r = (CONSECRATION_RADIUS_METERS / CELL_METERS) * CELL_PIXEL_SIZE;
+                        return (
+                          <circle
+                            cx={cx}
+                            cy={cy}
+                            r={r}
+                            fill="none"
+                            stroke="#fef9c3"
+                            strokeWidth="2.4"
+                            strokeDasharray="8 6"
+                            style={{ filter: 'drop-shadow(0 0 8px rgba(250, 204, 21, 0.9))' }}
+                          />
+                        );
+                      })()}
+
+                    {/* 4. Active Investida Galante Steel-Cyan Straight-Line Trajectory Arrow */}
+                    {combat.isGallantChargeModeActive && hoveredChargeResolved && (() => {
+                      const sx = combat.player.x * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+                      const sy = combat.player.y * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+                      const ex =
+                        hoveredChargeResolved.targetX * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+                      const ey =
+                        hoveredChargeResolved.targetY * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2;
+                      const strokeColor = hoveredChargeResolved.chargeData.hitsEnemy
+                        ? '#67e8f9'
+                        : '#22d3ee';
+                      return (
+                        <g style={{ filter: 'drop-shadow(0 0 8px rgba(34, 211, 238, 0.95))' }}>
+                          <line
+                            x1={sx}
+                            y1={sy}
+                            x2={ex}
+                            y2={ey}
+                            stroke={strokeColor}
+                            strokeWidth="3.5"
+                            strokeLinecap="round"
+                            strokeDasharray="10 6"
+                            className="justice-perimeter-dash"
+                          />
+                          <circle
+                            cx={ex}
+                            cy={ey}
+                            r="7"
+                            fill="rgba(34, 211, 238, 0.35)"
+                            stroke="#ecfeff"
+                            strokeWidth="2.2"
+                          />
+                        </g>
+                      );
+                    })()}
+                  </svg>
+                )}
+
+                {/* PLANTED KNIGHT BANNER OF GLORY OVERLAY (SPEAR + FLUTTERING HERALDIC BANNER) */}
+                {combat.plantedBanner && combat.plantedBanner.remainingRounds > 0 && (
+                  <div
+                    className="planted-banner-overlay"
+                    aria-label="Estandarte da Glória fincado no chão"
+                    style={{
+                      left: `${combat.plantedBanner.x * CELL_PIXEL_SIZE}px`,
+                      top: `${combat.plantedBanner.y * CELL_PIXEL_SIZE}px`,
+                      width: `${CELL_PIXEL_SIZE}px`,
+                      height: `${CELL_PIXEL_SIZE}px`,
+                    }}
+                  >
+                    <span className="planted-banner-ground-ring" aria-hidden="true" />
+                    <svg
+                      viewBox="0 0 48 56"
+                      className="w-11 h-12 -mt-3 relative z-10 drop-shadow-[0_2px_8px_rgba(250,204,21,0.85)]"
+                      aria-hidden="true"
+                    >
+                      {/* Heraldic crimson-and-gold pennant fluttering in the wind */}
+                      <g className="banner-cloth-flutter">
+                        <path
+                          d="M19 10 L43 13 L36 22 L43 31 L19 29 Z"
+                          fill="#b91c1c"
+                          stroke="#fde047"
+                          strokeWidth="1.7"
+                        />
+                        <path d="M23 15 L36 16.5 L32 21 L36 25.5 L23 24.5 Z" fill="#dc2626" />
+                        {/* Golden Justice Cross emblem */}
+                        <rect x="27.5" y="16.2" width="2.6" height="8.5" fill="#fef08a" />
+                        <rect x="24.6" y="19.1" width="8.4" height="2.4" fill="#fef08a" />
+                      </g>
+                      {/* Gilded spear shaft driven into the ground */}
+                      <line
+                        x1="18"
+                        y1="6"
+                        x2="18"
+                        y2="49"
+                        stroke="#fde047"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                      />
+                      <line
+                        x1="18"
+                        y1="6"
+                        x2="18"
+                        y2="49"
+                        stroke="#78350f"
+                        strokeWidth="1"
+                        strokeDasharray="4 4"
+                      />
+                      {/* Finial spearhead at top */}
+                      <polygon
+                        points="18,1 13.5,9 18,7 22.5,9"
+                        fill="#fef9c3"
+                        stroke="#ca8a04"
+                        strokeWidth="1"
+                      />
+                      {/* Crossbar under finial */}
+                      <line
+                        x1="13"
+                        y1="10"
+                        x2="23"
+                        y2="10"
+                        stroke="#facc15"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 z-20 px-1.5 py-0 rounded-xs bg-[#2c1a05]/95 border border-[#facc15] font-mono text-[8px] font-bold text-[#fef08a] whitespace-nowrap">
+                      JUSTIÇA {combat.plantedBanner.remainingRounds}R
+                    </span>
+                  </div>
+                )}
+
                 {/* LARGE 2×2 BOSS TOKEN OVERLAY (Slime Mãe occupies 4 grid cells) */}
                 {combat.enemy.sizeCells > 1 && movingActor?.who !== 'enemy' && (
                   <div
@@ -8546,7 +9557,11 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                   >
                     <div
                       className={`token token-enemy token-boss-large relative overflow-visible ${
+                        bossIntroPhase !== 'none' ? 'token-boss-intro-spawn' : ''
+                      } ${
                         bossLeaping ? 'token-boss-leaping' : ''
+                      } ${bossSummoning ? 'token-boss-summoning' : ''} ${
+                        bossAcidStriking ? 'token-boss-acid-strike' : ''
                       } ${
                         activeTarget.isPrimary && livingMinions.length > 0 && combat.enemy.hp > 0
                           ? 'token-target-selected'
@@ -8623,6 +9638,48 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                     </div>
                   )}
 
+                {/* FFXIV-STYLE STACK MARKER OVERLAY OVER TARGET TOKEN (NO TEXT SPOILERS) */}
+                {combat.enemy.stackMarkerCharging &&
+                  combat.enemy.stackMarkerTarget === 'player' &&
+                  combat.enemy.hp > 0 &&
+                  combat.player.hp > 0 && (
+                    <div
+                      className="stack-marker-overlay"
+                      aria-label="Marca de convergência sobre o alvo"
+                      style={{
+                        left: `${
+                          movingActor?.who === 'player'
+                            ? movingActor.left + 22
+                            : combat.player.x * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2
+                        }px`,
+                        top: `${
+                          movingActor?.who === 'player'
+                            ? movingActor.top + 22
+                            : combat.player.y * CELL_PIXEL_SIZE + CELL_PIXEL_SIZE / 2
+                        }px`,
+                      }}
+                    >
+                      <span className="stack-marker-inward-ring" aria-hidden="true" />
+                      <span className="stack-marker-ring-outer" aria-hidden="true" />
+                      <span
+                        className="stack-marker-arrow stack-marker-arrow-top"
+                        aria-hidden="true"
+                      />
+                      <span
+                        className="stack-marker-arrow stack-marker-arrow-bottom"
+                        aria-hidden="true"
+                      />
+                      <span
+                        className="stack-marker-arrow stack-marker-arrow-left"
+                        aria-hidden="true"
+                      />
+                      <span
+                        className="stack-marker-arrow stack-marker-arrow-right"
+                        aria-hidden="true"
+                      />
+                    </div>
+                  )}
+
                 {/* HOVER HUD OVERLAY ABOVE PLAYER TOKEN */}
                 {hoveredToken === 'player' && movingActor?.who !== 'player' && (
                   <div
@@ -8692,6 +9749,31 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                                 width: `${Math.min(
                                   100,
                                   (combat.player.sacredShieldHp / SACRED_PROTECTION_SHIELD_HP) * 100
+                                )}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {combat.player.bannerShieldHp > 0 && (
+                        <div>
+                          <div className="flex items-center justify-between text-[11px] font-mono tabular-nums mb-0.5">
+                            <span className="flex items-center gap-1 text-[#fde047] font-semibold">
+                              <Flag className="w-3 h-3 text-[#facc15]" />
+                              Escudo da Justiça
+                            </span>
+                            <span className="text-[#fef08a] font-semibold">
+                              {combat.player.bannerShieldHp}/{BANNER_OF_GLORY_SHIELD_HP}
+                            </span>
+                          </div>
+                          <div className="w-full h-1.5 bg-[#0e0a07] rounded-xs overflow-hidden">
+                            <div
+                              className="h-full bg-[#f59e0b] transition-all duration-200"
+                              style={{
+                                width: `${Math.min(
+                                  100,
+                                  (combat.player.bannerShieldHp / BANNER_OF_GLORY_SHIELD_HP) * 100
                                 )}%`,
                               }}
                             />
@@ -8879,23 +9961,25 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                     </div>
 
                     <div className="mt-2 space-y-2">
-                      <div>
-                        <div className="flex items-center justify-between text-[11px] font-mono tabular-nums mb-0.5">
-                          <span className="flex items-center gap-1 text-[#60c28c] font-semibold">
-                            <Heart className="w-3 h-3 fill-[#15803d] text-[#22c55e]" />
-                            Vida
-                          </span>
-                          <span className="text-[#bbf7d0] font-semibold">
-                            {combat.enemy.hp}/{combat.enemy.maxHp}
-                          </span>
+                      {!isSlimeHpHidden && (
+                        <div>
+                          <div className="flex items-center justify-between text-[11px] font-mono tabular-nums mb-0.5">
+                            <span className="flex items-center gap-1 text-[#60c28c] font-semibold">
+                              <Heart className="w-3 h-3 fill-[#15803d] text-[#22c55e]" />
+                              Vida
+                            </span>
+                            <span className="text-[#bbf7d0] font-semibold">
+                              {combat.enemy.hp}/{combat.enemy.maxHp}
+                            </span>
+                          </div>
+                          <div className="w-full h-1.5 bg-[#0e0a07] rounded-xs overflow-hidden">
+                            <div
+                              className="h-full bg-[#1f7a4c] transition-all duration-200"
+                              style={{ width: `${enemyHpPct}%` }}
+                            />
+                          </div>
                         </div>
-                        <div className="w-full h-1.5 bg-[#0e0a07] rounded-xs overflow-hidden">
-                          <div
-                            className="h-full bg-[#1f7a4c] transition-all duration-200"
-                            style={{ width: `${enemyHpPct}%` }}
-                          />
-                        </div>
-                      </div>
+                      )}
 
                       {combat.enemy.maxMp > 0 && (
                         <div>
@@ -9086,29 +10170,6 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                     <div className="mt-2 space-y-2">
                       <div>
                         <div className="flex items-center justify-between text-[11px] font-mono tabular-nums mb-0.5">
-                          <span className="flex items-center gap-1 text-[#60c28c] font-semibold">
-                            <Heart className="w-3 h-3 fill-[#15803d] text-[#22c55e]" />
-                            Vida
-                          </span>
-                          <span className="text-[#bbf7d0] font-semibold">
-                            {hoveredMinion.hp}/{hoveredMinion.maxHp}
-                          </span>
-                        </div>
-                        <div className="w-full h-1.5 bg-[#0e0a07] rounded-xs overflow-hidden">
-                          <div
-                            className="h-full bg-[#22c55e] transition-all duration-200"
-                            style={{
-                              width: `${Math.max(
-                                0,
-                                (hoveredMinion.hp / hoveredMinion.maxHp) * 100
-                              )}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between text-[11px] font-mono tabular-nums mb-0.5">
                           <span className="flex items-center gap-1 text-[#6bb4dc] font-semibold">
                             <Droplet className="w-3 h-3 fill-[#1d648c] text-[#38bdf8]" />
                             Mana
@@ -9211,58 +10272,74 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                 )}
 
                 {/* Animated Moving / Knockback Token Actor */}
-                {movingActor && (
-                  <div
-                    className={`token absolute pointer-events-none z-40 overflow-hidden ${
-                      movingActor.who === 'player'
-                        ? 'token-player'
-                        : movingActor.minionId
-                        ? 'token-enemy token-slime-minion'
-                        : combat.enemy.sizeCells > 1
-                        ? 'token-enemy token-boss-large'
-                        : 'token-enemy'
-                    }`}
-                    style={{
-                      left: `${movingActor.left}px`,
-                      top: `${movingActor.top}px`,
-                      width:
-                        movingActor.who === 'enemy' &&
-                        !movingActor.minionId &&
-                        combat.enemy.sizeCells > 1
-                          ? '94px'
-                          : undefined,
-                      height:
-                        movingActor.who === 'enemy' &&
-                        !movingActor.minionId &&
-                        combat.enemy.sizeCells > 1
-                          ? '94px'
-                          : undefined,
-                      transition:
-                        movingActor.transitionMs > 0
-                          ? movingActor.knockback
-                            ? `left ${movingActor.transitionMs}ms cubic-bezier(0.12, 0.92, 0.24, 1.06), top ${movingActor.transitionMs}ms cubic-bezier(0.12, 0.92, 0.24, 1.06), transform ${movingActor.transitionMs}ms ease-out`
-                            : `left ${movingActor.transitionMs}ms linear, top ${movingActor.transitionMs}ms linear`
-                          : 'none',
-                      transform: movingActor.knockback ? 'scale(0.92) rotate(-12deg)' : undefined,
-                    }}
-                  >
-                    <PortraitImage
-                      src={
+                {movingActor && (() => {
+                  const isBossSlimeMoving =
+                    movingActor.who === 'enemy' &&
+                    !movingActor.minionId &&
+                    combat.enemy.id === 'slime_mother';
+                  const isMinionSlimeMoving =
+                    movingActor.who === 'enemy' && Boolean(movingActor.minionId);
+                  return (
+                    <div
+                      className={`token absolute pointer-events-none z-40 overflow-hidden ${
                         movingActor.who === 'player'
-                          ? heroPortraitUrl
-                          : movingActor.portraitUrl ?? combat.enemy.portraitUrl
-                      }
-                      alt={movingActor.who === 'player' ? heroDisplayName : combat.enemy.name}
-                      variant={movingActor.who === 'player' ? 'hero' : 'enemy'}
-                      className={`w-full h-full object-cover object-top rounded-full bg-stone-900 ${
-                        movingActor.who === 'enemy' &&
-                        (movingActor.facing ?? combat.enemy.facing) === 'right'
-                          ? '-scale-x-100'
-                          : ''
+                          ? 'token-player'
+                          : isMinionSlimeMoving
+                          ? 'token-enemy token-slime-minion token-minion-slime-moving'
+                          : isBossSlimeMoving
+                          ? 'token-enemy token-boss-large token-boss-slime-moving'
+                          : combat.enemy.sizeCells > 1
+                          ? 'token-enemy token-boss-large'
+                          : 'token-enemy'
                       }`}
-                    />
-                  </div>
-                )}
+                      style={{
+                        left: `${movingActor.left}px`,
+                        top: `${movingActor.top}px`,
+                        width:
+                          movingActor.who === 'enemy' &&
+                          !movingActor.minionId &&
+                          combat.enemy.sizeCells > 1
+                            ? '94px'
+                            : undefined,
+                        height:
+                          movingActor.who === 'enemy' &&
+                          !movingActor.minionId &&
+                          combat.enemy.sizeCells > 1
+                            ? '94px'
+                            : undefined,
+                        transition:
+                          movingActor.transitionMs > 0
+                            ? movingActor.knockback
+                              ? `left ${movingActor.transitionMs}ms cubic-bezier(0.12, 0.92, 0.24, 1.06), top ${movingActor.transitionMs}ms cubic-bezier(0.12, 0.92, 0.24, 1.06), transform ${movingActor.transitionMs}ms ease-out`
+                              : isBossSlimeMoving || isMinionSlimeMoving
+                              ? `left ${movingActor.transitionMs}ms cubic-bezier(0.32, 0.08, 0.28, 0.96), top ${movingActor.transitionMs}ms cubic-bezier(0.32, 0.08, 0.28, 0.96)`
+                              : `left ${movingActor.transitionMs}ms linear, top ${movingActor.transitionMs}ms linear`
+                            : 'none',
+                        transform: movingActor.knockback ? 'scale(0.92) rotate(-12deg)' : undefined,
+                      }}
+                    >
+                      <PortraitImage
+                        src={
+                          movingActor.who === 'player'
+                            ? heroPortraitUrl
+                            : movingActor.portraitUrl ?? combat.enemy.portraitUrl
+                        }
+                        alt={movingActor.who === 'player' ? heroDisplayName : combat.enemy.name}
+                        variant={movingActor.who === 'player' ? 'hero' : 'enemy'}
+                        className={`w-full h-full object-cover ${
+                          isBossSlimeMoving || isMinionSlimeMoving
+                            ? 'object-center'
+                            : 'object-top'
+                        } rounded-full bg-stone-900 ${
+                          movingActor.who === 'enemy' &&
+                          (movingActor.facing ?? combat.enemy.facing) === 'right'
+                            ? '-scale-x-100'
+                            : ''
+                        }`}
+                      />
+                    </div>
+                  );
+                })()}
 
                 {/* Footstep & Knockback Dust */}
                 {dustVfxs.map((d) => (
@@ -9522,49 +10599,574 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                 })}
               </div>
 
-              {/* FLOATING VIEWPORT ZOOM CONTROLS (Bottom-Right) */}
-              <div
-                data-viewport-control="true"
-                className="absolute bottom-3 right-3 z-30 flex items-center gap-1 bg-[#140f0b]/92 border border-[#5c4327] rounded-sm p-1 shadow-xl backdrop-blur-xs"
-              >
-                <button
-                  type="button"
-                  onClick={() => setZoomCentered(camera.zoom - ZOOM_STEP)}
-                  disabled={camera.zoom <= MIN_ZOOM + 0.01}
-                  title="Diminuir zoom (-)"
-                  aria-label="Diminuir zoom do grid"
-                  className="w-8 h-8 rounded-xs bg-[#241b13] hover:bg-[#35281c] border border-[#4a3622] text-[#e6d7be] flex items-center justify-center transition-colors disabled:opacity-35 cursor-pointer"
+        {/* MINIMAL FLOATING TOP-LEFT STATUS HUD */}
+        <div
+          data-viewport-control="true"
+          className="absolute top-3 left-3 z-30 flex flex-col gap-1.5 pointer-events-auto max-w-[calc(100vw-88px)]"
+        >
+          <div className="bg-[#120d09]/76 backdrop-blur-md border border-[#4a3622]/75 rounded-sm px-2.5 py-1.5 shadow-xl flex items-center gap-2.5">
+            <div className="flex items-center gap-1.5 shrink-0">
+              {initiativeOrder.map((unit) => (
+                <div
+                  key={unit.id}
+                  title={`${unit.name} (Iniciativa ${unit.initiative})`}
+                  className={`relative rounded-full p-0.5 transition-all ${
+                    unit.isActive && combat.isActive
+                      ? 'ring-2 ring-[#e5b865] bg-[#30200f]'
+                      : 'opacity-60'
+                  } ${unit.isDead ? 'opacity-30 grayscale' : ''}`}
                 >
-                  <ZoomOut className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setZoomCentered(1)}
-                  title="Redefinir zoom para 100% (0)"
-                  className="px-2 h-8 rounded-xs bg-[#1b140e] hover:bg-[#2c2218] border border-[#4a3622] text-[#e5b865] font-mono tabular-nums text-xs font-bold min-w-[3.25rem] transition-colors cursor-pointer"
-                >
-                  {Math.round(camera.zoom * 100)}%
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setZoomCentered(camera.zoom + ZOOM_STEP)}
-                  disabled={camera.zoom >= MAX_ZOOM - 0.01}
-                  title="Aumentar zoom (+)"
-                  aria-label="Aumentar zoom do grid"
-                  className="w-8 h-8 rounded-xs bg-[#241b13] hover:bg-[#35281c] border border-[#4a3622] text-[#e6d7be] flex items-center justify-center transition-colors disabled:opacity-35 cursor-pointer"
-                >
-                  <ZoomIn className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={centerCamera}
-                  title="Centralizar mapa"
-                  aria-label="Centralizar mapa"
-                  className="w-8 h-8 rounded-xs bg-[#241b13] hover:bg-[#35281c] border border-[#4a3622] text-[#d9a043] flex items-center justify-center transition-colors cursor-pointer"
-                >
-                  <LocateFixed className="w-4 h-4" />
-                </button>
+                  <PortraitImage
+                    src={unit.avatar}
+                    alt={unit.name}
+                    variant={unit.variant}
+                    className="w-6 h-6 rounded-full object-cover object-top shrink-0"
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="w-px h-4 bg-[#4a3622]/80 shrink-0" />
+
+            <span
+              className={`font-serif font-bold text-xs tracking-wide whitespace-nowrap ${
+                combat.outcome === 'victory'
+                  ? 'text-[#86efac]'
+                  : combat.outcome === 'defeat'
+                  ? 'text-[#fca5a5]'
+                  : combat.awaitingReaction
+                  ? 'text-[#fde68a]'
+                  : combat.currentTurn === 'player'
+                  ? 'text-[#f3d189]'
+                  : 'text-[#f28b82]'
+              }`}
+            >
+              {turnStatusLabel}
+            </span>
+
+            <span className="hidden sm:inline font-mono tabular-nums text-[11px] text-[#a6957e] whitespace-nowrap">
+              · {distMeters}m
+            </span>
+          </div>
+
+          {/* Slim Boss Nameplate (HP completely hidden for Slime Mãe & Slimes Pequenas) */}
+          {combat.enemy.isBoss && (
+            <div className="bg-[#0e1a12]/78 backdrop-blur-md border border-[#245938]/80 rounded-sm px-2.5 py-1.5 shadow-xl w-56 sm:w-64">
+              <div className="flex items-center justify-between gap-2 text-[11px] font-mono tabular-nums">
+                <span className="font-serif font-bold text-[#bbf7d0] truncate flex items-center gap-1">
+                  <Crown className="w-3 h-3 text-[#4ade80] shrink-0" />
+                  {combat.enemy.name}
+                </span>
+                {!isSlimeHpHidden && (
+                  <span className="text-[#86efac] font-semibold shrink-0">
+                    {combat.enemy.hp}/{combat.enemy.maxHp}
+                  </span>
+                )}
               </div>
+              {!isSlimeHpHidden && (
+                <div className="w-full h-1.5 bg-[#08120c] rounded-xs overflow-hidden mt-1">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#15803d] via-[#22c55e] to-[#4ade80] transition-all duration-300"
+                    style={{ width: `${enemyHpPct}%` }}
+                  />
+                </div>
+              )}
+              {livingMinions.length > 0 && (
+                <div className="mt-1 text-[10px] font-mono tabular-nums text-[#86efac]/90">
+                  Slimes Pequenas ativas: {livingMinions.length}/{combat.enemy.maxMinions}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* CONTEXTUAL TARGETING HINT (Only shown when aiming/moving) */}
+        {isTargetingHintActive && (
+          <div
+            data-viewport-control="true"
+            className="absolute top-3 left-1/2 -translate-x-1/2 z-30 pointer-events-none max-w-[min(520px,calc(100vw-160px))] hidden md:block"
+          >
+            <div
+              className={`px-3.5 py-1.5 rounded-sm border backdrop-blur-md shadow-xl text-xs font-mono tabular-nums text-center truncate ${
+                combat.isBannerOfGloryModeActive
+                  ? 'bg-[#2c1a06]/92 border-[#facc15]/80 text-[#fef08a]'
+                  : combat.isConsecrationModeActive
+                  ? 'bg-[#241c0a]/90 border-[#fde047]/70 text-[#fef08a]'
+                  : combat.isGallantChargeModeActive
+                  ? 'bg-[#082430]/92 border-[#22d3ee]/80 text-[#cffafe]'
+                  : combat.isFireBreathModeActive
+                  ? 'bg-[#2c120a]/90 border-[#fb923c]/70 text-[#fed7aa]'
+                  : combat.isMoveModeActive && enemyAdjacentForOpportunity
+                  ? 'bg-[#291b0a]/90 border-[#f3c46b]/70 text-[#fde68a]'
+                  : 'bg-[#0e1c26]/88 border-[#4992bd]/70 text-[#bae6fd]'
+              }`}
+            >
+              {moveHintText}
+            </div>
+          </div>
+        )}
+
+        {/* DISCREET TOP-RIGHT CORNER GEAR & ACTION MENUS */}
+        <div
+          ref={cornerMenuRef}
+          data-viewport-control="true"
+          className="absolute top-3 right-3 z-40 flex flex-col items-end gap-2"
+        >
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() =>
+                setCornerMenuView((prev) => (prev === 'closed' ? 'root' : 'closed'))
+              }
+              title="Menu da Arena (Configuração, Som, Reiniciar, Log)"
+              aria-label="Abrir menu da arena"
+              aria-expanded={cornerMenuView !== 'closed'}
+              className={`w-9 h-9 rounded-sm backdrop-blur-md border flex items-center justify-center shadow-lg transition-all cursor-pointer ${
+                cornerMenuView !== 'closed'
+                  ? 'bg-[#2c1e0f]/95 border-[#d9a043] text-[#f3d189]'
+                  : 'bg-[#120d09]/70 hover:bg-[#1e160f]/92 border-[#4a3622]/70 hover:border-[#c9943b]/80 text-[#c9b496] hover:text-[#f3d189]'
+              }`}
+            >
+              <Settings
+                className={`w-4 h-4 transition-transform duration-200 ${
+                  cornerMenuView !== 'closed' ? 'rotate-45' : ''
+                }`}
+              />
+            </button>
+          </div>
+
+          {cornerMenuView !== 'closed' && (
+            <div
+              role="menu"
+              aria-label="Menu de controle da arena"
+              className="w-72 bg-[#140e0a]/96 backdrop-blur-md border border-[#5c4327] rounded-sm shadow-2xl overflow-hidden"
+            >
+              {cornerMenuView === 'root' && (
+                <div className="p-2 space-y-1">
+                  <div className="px-2 py-1.5 border-b border-[#3b2c1e] flex items-center justify-between">
+                    <span className="font-serif text-xs font-bold text-[#e5b865] tracking-wider">
+                      Menu da Arena
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCornerMenuView('closed')}
+                      aria-label="Fechar menu"
+                      className="text-[#8a7863] hover:text-[#f3d189] p-0.5 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => setCornerMenuView('config')}
+                    className="w-full px-3 py-2.5 rounded-xs text-left text-xs font-serif font-bold text-[#ede3d2] hover:bg-[#241a12] hover:text-[#f3d189] flex items-center justify-between gap-2 transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <SlidersHorizontal className="w-4 h-4 text-[#d9a043]" />
+                      <span>Configuração</span>
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5 text-[#8a7863]" />
+                  </button>
+
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => setCornerMenuView('audio')}
+                    className="w-full px-3 py-2.5 rounded-xs text-left text-xs font-serif font-bold text-[#ede3d2] hover:bg-[#241a12] hover:text-[#f3d189] flex items-center justify-between gap-2 transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      {audioPrefs.isMuted ? (
+                        <VolumeX className="w-4 h-4 text-[#f87171]" />
+                      ) : (
+                        <Volume2 className="w-4 h-4 text-[#60c28c]" />
+                      )}
+                      <span>Alterar som</span>
+                    </span>
+                    <span className="flex items-center gap-1.5 font-mono text-[10px] text-[#a6957e]">
+                      {audioPrefs.isMuted ? 'Mudo' : audioPrefs.musicEnabled ? 'Ativo' : 'SFX'}
+                      <ChevronRight className="w-3.5 h-3.5 text-[#8a7863]" />
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => setCornerMenuView('restart')}
+                    className="w-full px-3 py-2.5 rounded-xs text-left text-xs font-serif font-bold text-[#ede3d2] hover:bg-[#241a12] hover:text-[#f3d189] flex items-center justify-between gap-2 transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <RotateCcw className="w-4 h-4 text-[#e5b865]" />
+                      <span>Reiniciar combate</span>
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5 text-[#8a7863]" />
+                  </button>
+
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setIsCombatLogOpen((prev) => !prev);
+                      setCornerMenuView('closed');
+                    }}
+                    className="w-full px-3 py-2.5 rounded-xs text-left text-xs font-serif font-bold text-[#ede3d2] hover:bg-[#241a12] hover:text-[#f3d189] flex items-center justify-between gap-2 transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <ScrollText className="w-4 h-4 text-[#7dd3fc]" />
+                      <span>{isCombatLogOpen ? 'Ocultar log' : 'Visualizar log'}</span>
+                    </span>
+                    <span className="font-mono tabular-nums text-[10px] text-[#a6957e]">
+                      {combatLog.length} reg.
+                    </span>
+                  </button>
+
+                  <div className="pt-1 mt-1 border-t border-[#3b2c1e] space-y-1">
+                    {onBackToArenaSelect && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setCornerMenuView('closed');
+                          onBackToArenaSelect();
+                        }}
+                        className="w-full px-3 py-2 rounded-xs text-left text-xs font-serif font-semibold text-[#e5b865] hover:bg-[#291e12] hover:text-[#f8e1a9] flex items-center gap-2.5 transition-colors cursor-pointer"
+                      >
+                        <Swords className="w-4 h-4" />
+                        <span>Trocar de Arena</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={onClose}
+                      className="w-full px-3 py-2 rounded-xs text-left text-xs font-serif font-semibold text-[#c79a96] hover:bg-[#2b1414] hover:text-[#fca5a5] flex items-center gap-2.5 transition-colors cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                      <span>Sair da Arena (Voltar à Ficha)</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {cornerMenuView === 'config' && (
+                <div className="p-2.5 space-y-3">
+                  <div className="pb-2 border-b border-[#3b2c1e] flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setCornerMenuView('root')}
+                      className="flex items-center gap-1 text-xs font-serif font-bold text-[#e5b865] hover:text-[#f8e1a9] cursor-pointer"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Configuração</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCornerMenuView('closed')}
+                      aria-label="Fechar configuração"
+                      className="text-[#8a7863] hover:text-[#f3d189] p-0.5 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {/* Encounter selection */}
+                  <div className="space-y-1.5">
+                    <span className="text-[11px] font-serif text-[#a6957e]">Encontro da Arena</span>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          startNewCombat('goblin');
+                          setCornerMenuView('closed');
+                        }}
+                        className={`w-full px-2.5 py-2 rounded-xs border text-xs font-serif font-bold flex items-center gap-2 transition-colors cursor-pointer ${
+                          selectedEnemyId === 'goblin'
+                            ? 'bg-[#36230e] border-[#c9943b] text-[#f3d189]'
+                            : 'bg-[#1d150f] border-[#3d2e20] text-[#b39d82] hover:text-[#ede3d2]'
+                        }`}
+                      >
+                        <PortraitImage
+                          src={GOBLIN_PORTRAIT_URL}
+                          alt="Goblin"
+                          variant="enemy"
+                          className="w-5 h-5 rounded-full object-cover object-top shrink-0"
+                        />
+                        <span>Goblin Espadachim</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          startNewCombat('slime_mother');
+                          setCornerMenuView('closed');
+                        }}
+                        className={`w-full px-2.5 py-2 rounded-xs border text-xs font-serif font-bold flex items-center gap-2 transition-colors cursor-pointer ${
+                          selectedEnemyId === 'slime_mother'
+                            ? 'bg-[#102e1d] border-[#22c55e] text-[#86efac]'
+                            : 'bg-[#1d150f] border-[#3d2e20] text-[#b39d82] hover:text-[#bbf7d0]'
+                        }`}
+                      >
+                        <PortraitImage
+                          src={SLIME_MOTHER_PORTRAIT_URL}
+                          alt="Slime Mãe"
+                          variant="enemy"
+                          className="w-5 h-5 rounded-full object-cover object-top shrink-0"
+                        />
+                        <Crown className="w-3.5 h-3.5 text-[#4ade80] shrink-0" />
+                        <span>Boss: Slime Mãe</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Display & Camera controls */}
+                  <div className="space-y-1.5 pt-1 border-t border-[#3b2c1e]">
+                    <span className="text-[11px] font-serif text-[#a6957e]">Tela e Câmera</span>
+                    <button
+                      type="button"
+                      onClick={() => void toggleFullscreen()}
+                      className="w-full px-2.5 py-2 rounded-xs border border-[#4a3622] bg-[#1d150f] hover:bg-[#291e15] text-xs font-serif font-semibold text-[#ede3d2] flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2">
+                        {isFullscreen ? (
+                          <Minimize2 className="w-3.5 h-3.5 text-[#e5b865]" />
+                        ) : (
+                          <Maximize2 className="w-3.5 h-3.5 text-[#e5b865]" />
+                        )}
+                        <span>{isFullscreen ? 'Sair de Tela Cheia' : 'Tela Cheia'}</span>
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        centerCamera();
+                        setCornerMenuView('closed');
+                      }}
+                      className="w-full px-2.5 py-2 rounded-xs border border-[#4a3622] bg-[#1d150f] hover:bg-[#291e15] text-xs font-serif font-semibold text-[#ede3d2] flex items-center gap-2 cursor-pointer"
+                    >
+                      <LocateFixed className="w-3.5 h-3.5 text-[#d9a043]" />
+                      <span>Ajustar Grid à Tela</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {cornerMenuView === 'audio' && (
+                <div className="p-2.5 space-y-3">
+                  <div className="pb-2 border-b border-[#3b2c1e] flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setCornerMenuView('root')}
+                      className="flex items-center gap-1 text-xs font-serif font-bold text-[#e5b865] hover:text-[#f8e1a9] cursor-pointer"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Alterar Som</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCornerMenuView('closed')}
+                      aria-label="Fechar controle de som"
+                      className="text-[#8a7863] hover:text-[#f3d189] p-0.5 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setAudioPrefs(gameAudio.toggleMusic())}
+                      className={`w-full px-3 py-2 rounded-xs border text-xs font-serif font-bold flex items-center justify-between transition-colors cursor-pointer ${
+                        audioPrefs.musicEnabled && !audioPrefs.isMuted
+                          ? 'bg-[#2c1e0f] border-[#8c6430] text-[#f3d189]'
+                          : 'bg-[#1b140e] border-[#3d2e20] text-[#8a7863] hover:text-[#ede3d2]'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <Music className="w-3.5 h-3.5" />
+                        <span>Trilha Sonora</span>
+                      </span>
+                      <span className="font-mono text-[11px]">
+                        {audioPrefs.musicEnabled && !audioPrefs.isMuted ? 'Ligada' : 'Desligada'}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setAudioPrefs(gameAudio.toggleMuteAll())}
+                      className={`w-full px-3 py-2 rounded-xs border text-xs font-serif font-bold flex items-center justify-between transition-colors cursor-pointer ${
+                        audioPrefs.isMuted
+                          ? 'bg-[#3b1515] border-[#a83232] text-[#fca5a5]'
+                          : 'bg-[#12261a] border-[#2e6b46] text-[#86efac]'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        {audioPrefs.isMuted ? (
+                          <VolumeX className="w-3.5 h-3.5" />
+                        ) : (
+                          <Volume2 className="w-3.5 h-3.5" />
+                        )}
+                        <span>Áudio Geral</span>
+                      </span>
+                      <span className="font-mono text-[11px]">
+                        {audioPrefs.isMuted ? 'Silenciado' : 'Ativo'}
+                      </span>
+                    </button>
+                  </div>
+
+                  <div className="space-y-2.5 pt-1 border-t border-[#3b2c1e]">
+                    <label className="block space-y-1">
+                      <div className="flex items-center justify-between text-[11px] font-mono tabular-nums text-[#c7b59e]">
+                        <span>Volume da Música</span>
+                        <span className="text-[#e5b865]">
+                          {Math.round(audioPrefs.musicVolume * 100)}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={Math.round(audioPrefs.musicVolume * 100)}
+                        disabled={audioPrefs.isMuted}
+                        onChange={(e) =>
+                          setAudioPrefs(gameAudio.setMusicVolume(Number(e.target.value) / 100))
+                        }
+                        className="w-full accent-[#d9a043] cursor-pointer disabled:opacity-40"
+                      />
+                    </label>
+
+                    <label className="block space-y-1">
+                      <div className="flex items-center justify-between text-[11px] font-mono tabular-nums text-[#c7b59e]">
+                        <span>Volume dos Efeitos</span>
+                        <span className="text-[#e5b865]">
+                          {Math.round(audioPrefs.sfxVolume * 100)}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={Math.round(audioPrefs.sfxVolume * 100)}
+                        disabled={audioPrefs.isMuted}
+                        onChange={(e) =>
+                          setAudioPrefs(gameAudio.setSfxVolume(Number(e.target.value) / 100))
+                        }
+                        className="w-full accent-[#d9a043] cursor-pointer disabled:opacity-40"
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {cornerMenuView === 'restart' && (
+                <div className="p-2.5 space-y-2.5">
+                  <div className="pb-2 border-b border-[#3b2c1e] flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setCornerMenuView('root')}
+                      className="flex items-center gap-1 text-xs font-serif font-bold text-[#e5b865] hover:text-[#f8e1a9] cursor-pointer"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Reiniciar Combate</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCornerMenuView('closed')}
+                      aria-label="Fechar reiniciar combate"
+                      className="text-[#8a7863] hover:text-[#f3d189] p-0.5 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-[#b39d82] leading-relaxed">
+                    Restaura vida, energia, posições e iniciativa do encontro selecionado.
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      startNewCombat();
+                      setCornerMenuView('closed');
+                    }}
+                    className="medieval-btn-gold w-full py-2 px-3 rounded-xs text-xs font-serif font-bold flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reiniciar Luta Atual</span>
+                  </button>
+
+                  <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-[#3b2c1e]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        startNewCombat('goblin');
+                        setCornerMenuView('closed');
+                      }}
+                      className="py-1.5 px-2 rounded-xs bg-[#1d150f] hover:bg-[#2b1f16] border border-[#4a3622] text-[11px] font-serif font-bold text-[#e6d7be] cursor-pointer"
+                    >
+                      Novo: Goblin
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        startNewCombat('slime_mother');
+                        setCornerMenuView('closed');
+                      }}
+                      className="py-1.5 px-2 rounded-xs bg-[#102618] hover:bg-[#163623] border border-[#245938] text-[11px] font-serif font-bold text-[#86efac] cursor-pointer"
+                    >
+                      Novo: Slime Mãe
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* DISCREET FLOATING ZOOM CONTROLS (Bottom-Right) */}
+        <div
+          data-viewport-control="true"
+          className="absolute bottom-3 right-3 z-20 hidden sm:flex items-center gap-0.5 bg-[#120d09]/70 hover:bg-[#140f0b]/92 border border-[#4a3622]/70 rounded-sm p-1 shadow-lg backdrop-blur-md opacity-70 hover:opacity-100 transition-opacity"
+        >
+          <button
+            type="button"
+            onClick={() => setZoomCentered(camera.zoom - ZOOM_STEP)}
+            disabled={camera.zoom <= MIN_ZOOM + 0.01}
+            title="Diminuir zoom (-)"
+            aria-label="Diminuir zoom do grid"
+            className="w-7 h-7 rounded-xs bg-[#211912] hover:bg-[#312419] text-[#e6d7be] flex items-center justify-center transition-colors disabled:opacity-35 cursor-pointer"
+          >
+            <ZoomOut className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={centerCamera}
+            title="Ajustar grid à tela"
+            className="px-1.5 h-7 rounded-xs bg-[#1a130d] hover:bg-[#2a1f16] text-[#e5b865] font-mono tabular-nums text-[11px] font-bold min-w-[2.9rem] transition-colors cursor-pointer"
+          >
+            {Math.round(camera.zoom * 100)}%
+          </button>
+          <button
+            type="button"
+            onClick={() => setZoomCentered(camera.zoom + ZOOM_STEP)}
+            disabled={camera.zoom >= MAX_ZOOM - 0.01}
+            title="Aumentar zoom (+)"
+            aria-label="Aumentar zoom do grid"
+            className="w-7 h-7 rounded-xs bg-[#211912] hover:bg-[#312419] text-[#e6d7be] flex items-center justify-center transition-colors disabled:opacity-35 cursor-pointer"
+          >
+            <ZoomIn className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={centerCamera}
+            title="Centralizar mapa"
+            aria-label="Centralizar mapa"
+            className="w-7 h-7 rounded-xs bg-[#211912] hover:bg-[#312419] text-[#d9a043] flex items-center justify-center transition-colors cursor-pointer"
+          >
+            <LocateFixed className="w-3.5 h-3.5" />
+          </button>
+        </div>
 
               {/* PRE-IMPACT REACTION SKILL OVERLAY */}
               {combat.awaitingReaction && combat.pendingAttack && (
@@ -9625,6 +11227,12 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                             pontos de dano antes da sua Vida.
                           </p>
                         )}
+                        {combat.player.bannerShieldHp > 0 && (
+                          <p className="text-xs font-mono text-[#fde047] mt-1">
+                            Escudo da Justiça ativo: absorverá até {combat.player.bannerShieldHp}{' '}
+                            pontos de dano antes da sua Vida.
+                          </p>
+                        )}
                         {combat.player.stealthTurns > 0 && (
                           <p className="text-xs font-mono text-[#d8b4fe] mt-1">
                             Furtividade ativa: você sofrerá +{STEALTH_EXTRA_DAMAGE_TAKEN} de dano
@@ -9640,6 +11248,13 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                         {combat.pendingAttack.isHeavyBlow && (
                           <p className="text-xs text-[#f4b17a] mt-1">
                             Efeito adicional: empurra até 6,0m para trás e atordoa por 1 rodada.
+                          </p>
+                        )}
+                        {combat.pendingAttack.isStackMarker && (
+                          <p className="text-xs text-[#fde047] mt-1">
+                            {(combat.pendingAttack.stackParticipants ?? 1) > 1
+                              ? `Impacto dividido igualmente entre ${combat.pendingAttack.stackParticipants} jogadores (${combat.pendingAttack.baseDamage} ÷ ${combat.pendingAttack.stackParticipants} · ignora Provocar).`
+                              : `Alvo isolado: sofre todo o dano (${combat.pendingAttack.baseDamage} ÷ 1 · ignora Provocar).`}
                           </p>
                         )}
                         {combat.pendingAttack.isOpportunityAttack && (
@@ -9747,7 +11362,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                         ? `${heroDisplayName} superou o ${combat.enemy.name} em ${combat.round} rodada(s).`
                         : `${heroDisplayName} caiu na rodada ${combat.round}. Ajuste sua distribuição de atributos e retorne à arena.`}
                     </p>
-                    <div className="mt-5 flex items-center justify-center gap-3">
+                    <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
                       <button
                         type="button"
                         onClick={() => startNewCombat()}
@@ -9755,6 +11370,15 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                       >
                         Lutar Novamente
                       </button>
+                      {onBackToArenaSelect && (
+                        <button
+                          type="button"
+                          onClick={onBackToArenaSelect}
+                          className="medieval-btn-iron min-h-10 px-4 py-2 rounded-sm text-sm font-serif font-bold text-[#e5b865] transition-colors cursor-pointer"
+                        >
+                          Escolher Arena
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={onClose}
@@ -9766,28 +11390,36 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                   </div>
                 </div>
               )}
-            </div>
-          </div>
-
-          {/* Always-Visible Tactical Combat Log Sidebar */}
-          {isCombatLogOpen && (
-            <aside
-              aria-label="Log de Combate"
-              className="w-full lg:w-[340px] xl:w-[380px] shrink-0 flex flex-col bg-[#110c09] border border-[#523b23] rounded-sm overflow-hidden max-h-[260px] lg:max-h-none"
-            >
-              {/* Log Header & Filter Tabs */}
-              <div className="px-3 py-2.5 bg-[#18110c] border-b border-[#4a3622] shrink-0 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <ScrollText className="w-4 h-4 text-[#e5b865] shrink-0" />
-                    <h3 className="font-serif text-xs font-bold text-[#e5b865] tracking-wider uppercase truncate">
-                      Log de Combate
-                    </h3>
-                  </div>
-                  <span className="font-mono tabular-nums text-[11px] text-[#a6957e] shrink-0">
-                    Rodada {combat.round} · {combatLog.length} reg.
-                  </span>
+        {/* Floating Tactical Combat Log Overlay (Opened via Menu → Visualizar log) */}
+        {isCombatLogOpen && (
+          <aside
+            data-viewport-control="true"
+            aria-label="Log de Combate"
+            className="absolute top-14 right-3 bottom-20 z-30 w-[min(360px,calc(100vw-24px))] flex flex-col bg-[#110c09]/94 backdrop-blur-md border border-[#523b23] rounded-sm shadow-2xl overflow-hidden"
+          >
+            {/* Log Header & Filter Tabs */}
+            <div className="px-3 py-2.5 bg-[#18110c]/95 border-b border-[#4a3622] shrink-0 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <ScrollText className="w-4 h-4 text-[#e5b865] shrink-0" />
+                  <h3 className="font-serif text-xs font-bold text-[#e5b865] tracking-wider uppercase truncate">
+                    Log de Combate
+                  </h3>
                 </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="font-mono tabular-nums text-[11px] text-[#a6957e]">
+                    R{combat.round} · {combatLog.length}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsCombatLogOpen(false)}
+                    aria-label="Fechar log de combate"
+                    className="w-6 h-6 rounded-xs bg-[#211912] hover:bg-[#312419] text-[#a6957e] hover:text-[#f3d189] flex items-center justify-center cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
 
                 {/* Live Battle Telemetry Strip */}
                 <div className="grid grid-cols-3 gap-1.5 text-[10px] font-mono tabular-nums">
@@ -9802,7 +11434,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                   <div className="bg-[#120d09] border border-[#3b2c1e] rounded-xs px-2 py-1">
                     <div className="text-[#8f7e69] uppercase text-[9px]">HP Inimigo</div>
                     <div className="text-[#fca5a5] font-bold text-xs">
-                      {combat.enemy.hp}/{combat.enemy.maxHp}
+                      {isSlimeHpHidden ? '???' : `${combat.enemy.hp}/${combat.enemy.maxHp}`}
                     </div>
                   </div>
                 </div>
@@ -9955,62 +11587,47 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
               </div>
             </aside>
           )}
-        </div>
 
-        {/* Sticky Medieval Tactical Action Footer */}
-        <div className="p-3 sm:p-4 bg-[#130e0a] border-t border-[#5c4327] shrink-0 flex flex-wrap items-center justify-between gap-3 rounded-b-md relative z-30">
-          {/* Round Economy Status */}
-          <div className="flex flex-wrap items-center gap-4 text-xs font-mono tabular-nums">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[#a6957e]">Ação de Movimento ({moveMetersFormatted}m):</span>
+        {/* Clean Floating Bottom-Center Tactical Action Dock */}
+        <div
+          data-viewport-control="true"
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 max-w-[calc(100vw-24px)]"
+        >
+          <div className="bg-[#120d09]/84 backdrop-blur-md border border-[#5c4327]/85 rounded-sm px-2.5 py-2 shadow-2xl flex flex-wrap items-center justify-center gap-2">
+            {/* Compact Economy Status */}
+            <div className="hidden lg:flex items-center gap-2 pr-2 mr-0.5 border-r border-[#473421] text-[11px] font-mono tabular-nums whitespace-nowrap">
               <span
-                className={`font-bold ${
+                className={
                   isStunned && combat.currentTurn === 'player'
-                    ? 'text-[#fde047]'
+                    ? 'text-[#fde047] font-semibold'
                     : combat.player.hasMoved
-                    ? 'text-[#6e5f4e]'
-                    : 'text-[#60c28c]'
-                }`}
+                    ? 'text-[#6e5f4e] line-through'
+                    : 'text-[#60c28c] font-semibold'
+                }
               >
-                {isStunned && combat.currentTurn === 'player'
-                  ? 'Atordoado'
-                  : combat.player.hasMoved
-                  ? 'Utilizada'
-                  : 'Disponível'}
+                Mov
               </span>
-            </div>
-
-            <span aria-hidden="true" className="text-[#5c4327]">
-              ◈
-            </span>
-
-            <div className="flex items-center gap-1.5">
-              <span className="text-[#a6957e]">Ação Padrão:</span>
+              <span aria-hidden="true" className="text-[#5c4327]">
+                ·
+              </span>
               <span
-                className={`font-bold ${
+                className={
                   isStunned && combat.currentTurn === 'player'
-                    ? 'text-[#fde047]'
+                    ? 'text-[#fde047] font-semibold'
                     : combat.player.hasActed
-                    ? 'text-[#6e5f4e]'
-                    : 'text-[#60c28c]'
-                }`}
+                    ? 'text-[#6e5f4e] line-through'
+                    : 'text-[#60c28c] font-semibold'
+                }
               >
-                {isStunned && combat.currentTurn === 'player'
-                  ? 'Atordoado'
-                  : combat.player.hasActed
-                  ? 'Utilizada'
-                  : 'Disponível'}
+                Ação
               </span>
             </div>
-          </div>
 
-          {/* Primary Tactical Buttons: Ação de Movimento | Disparada (Ladino) | Ação Padrão (Menu) | Passar Turno */}
-          <div className="flex flex-wrap items-center gap-2.5">
             <button
               type="button"
               disabled={!isPlayerControlsEnabled || isStunned || combat.player.hasMoved}
               onClick={handleToggleMoveMode}
-              className={`min-h-11 px-4 py-2 rounded-sm text-sm font-serif font-bold tracking-wide transition-colors flex items-center gap-2 whitespace-nowrap disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer ${
+              className={`min-h-10 px-3.5 py-1.5 rounded-sm text-xs sm:text-sm font-serif font-bold tracking-wide transition-colors flex items-center gap-1.5 whitespace-nowrap disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer ${
                 combat.isMoveModeActive
                   ? 'bg-[#21648c] border border-[#7dd3fc] text-white'
                   : 'medieval-btn-cobalt'
@@ -10018,9 +11635,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
             >
               <Footprints className="w-4 h-4 text-[#9cd7f7]" />
               <span>
-                {combat.isMoveModeActive
-                  ? 'Cancelar Ação de Movimento'
-                  : `Ação de Movimento (${moveMetersFormatted}m)`}
+                {combat.isMoveModeActive ? 'Cancelar' : `Mover (${moveMetersFormatted}m)`}
               </span>
             </button>
 
@@ -10752,6 +12367,55 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                           </p>
                         ) : null}
                       </button>
+
+                      {/* Knight Option 4: Estandarte da Glória */}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!canBannerOfGlory}
+                        onClick={handleToggleBannerOfGloryMode}
+                        className="w-full text-left p-2.5 rounded-sm border border-[#ca8a04] bg-[#2a1f0a] hover:bg-[#3b2b0d] hover:border-[#fde047] transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-serif font-bold text-sm text-[#fef08a] flex items-center gap-2">
+                            <Flag className="w-4 h-4 text-[#facc15]" />
+                            Estandarte da Glória
+                          </span>
+                          <span className="font-mono tabular-nums text-xs text-[#7dd3fc] font-semibold">
+                            -{BANNER_OF_GLORY_MP_COST} MP ·{' '}
+                            {BANNER_OF_GLORY_CAST_RANGE_METERS.toFixed(1).replace('.', ',')}m
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#dfd0ad] mt-1">
+                          Lança uma lança com estandarte (7,5m): inimigos na área de{' '}
+                          <strong className="font-mono text-[#fef08a]">6,0m</strong> sofrem{' '}
+                          <strong className="font-mono text-[#93c5fd]">
+                            {BANNER_OF_GLORY_MAGIC_DAMAGE} Mág.
+                          </strong>{' '}
+                          +{' '}
+                          <strong className="font-mono text-[#fde68a]">
+                            {dmgRange.min === dmgRange.max
+                              ? `${dmgRange.min}`
+                              : `${dmgRange.min}–${dmgRange.max}`}{' '}
+                            Fís.
+                          </strong>{' '}
+                          Cria Área da Justiça ({BANNER_OF_GLORY_DURATION_ROUNDS}R): aliados ganham{' '}
+                          <strong className="font-mono text-[#fef08a]">
+                            +{BANNER_OF_GLORY_SHIELD_HP} Escudo
+                          </strong>{' '}
+                          no início do turno.
+                        </p>
+                        {combat.player.mp < BANNER_OF_GLORY_MP_COST ? (
+                          <p className="text-[11px] font-mono text-[#f28b82] mt-1">
+                            Mana insuficiente ({combat.player.mp}/{BANNER_OF_GLORY_MP_COST} MP)
+                          </p>
+                        ) : combat.plantedBanner ? (
+                          <p className="text-[11px] font-mono text-[#fde047] mt-1">
+                            Estandarte ativo ({combat.plantedBanner.remainingRounds}R restantes) —
+                            lançar reposiciona por 2R
+                          </p>
+                        ) : null}
+                      </button>
                     </>
                   ) : (
                     <>
@@ -10866,7 +12530,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                           <p className="text-[11px] font-mono text-[#e5b865] mt-1">
                             Alvo a {distMeters}m (aproxime-se para 1,5m)
                           </p>
-                        ) : isEnemyExecutionerLowHp ? (
+                        ) : isEnemyExecutionerLowHp && !isSlimeHpHidden ? (
                           <p className="text-[11px] font-mono text-[#fb7185] font-semibold mt-1">
                             Alvo com ≤50% HP — bônus de Execução +{EXECUTIONER_LOW_HP_BONUS_DAMAGE} ATIVO!
                           </p>
@@ -10896,10 +12560,22 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                     setHoveredCellKey(null);
                     updateCombat((prev) => ({ ...prev, isGallantChargeModeActive: false }));
                   }}
+                  className="min-h-11 px-5 py-2 rounded-sm text-sm font-serif font-bold tracking-wider transition-all flex items-center gap-2 whitespace-nowrap bg-[#0e4456] hover:bg-[#155e75] border border-[#22d3ee] text-[#ecfeff] cursor-pointer"
+                >
+                  <Wind className="w-4 h-4 text-[#67e8f9]" />
+                  <span>Cancelar Investida Galante</span>
+                </button>
+              ) : combat.isBannerOfGloryModeActive ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHoveredCellKey(null);
+                    updateCombat((prev) => ({ ...prev, isBannerOfGloryModeActive: false }));
+                  }}
                   className="min-h-11 px-5 py-2 rounded-sm text-sm font-serif font-bold tracking-wider transition-all flex items-center gap-2 whitespace-nowrap bg-[#6b4810] hover:bg-[#855a14] border border-[#facc15] text-[#fef9c3] cursor-pointer"
                 >
-                  <Wind className="w-4 h-4 text-[#fde047]" />
-                  <span>Cancelar Investida Galante</span>
+                  <Flag className="w-4 h-4 text-[#fde047]" />
+                  <span>Cancelar Estandarte da Glória</span>
                 </button>
               ) : combat.isConsecrationModeActive ? (
                 <button
@@ -10926,6 +12602,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                       isFireBreathModeActive: false,
                       isGallantChargeModeActive: false,
                       isConsecrationModeActive: false,
+                      isBannerOfGloryModeActive: false,
                     }));
                     setIsStandardActionOpen((prev) => !prev);
                   }}

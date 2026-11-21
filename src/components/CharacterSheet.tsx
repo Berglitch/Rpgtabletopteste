@@ -5,6 +5,7 @@ import {
   Droplet,
   Eye,
   EyeOff,
+  Flag,
   Flame,
   Heart,
   Megaphone,
@@ -46,6 +47,12 @@ import {
   GALLANT_CHARGE_BONUS_DAMAGE,
   GALLANT_CHARGE_EP_COST,
   GALLANT_CHARGE_RANGE_METERS,
+  BANNER_OF_GLORY_CAST_RANGE_METERS,
+  BANNER_OF_GLORY_DURATION_ROUNDS,
+  BANNER_OF_GLORY_MAGIC_DAMAGE,
+  BANNER_OF_GLORY_MP_COST,
+  BANNER_OF_GLORY_RADIUS_METERS,
+  BANNER_OF_GLORY_SHIELD_HP,
   INITIAL_POINTS,
   KNIGHT_TAUNT_DEFENSE_BONUS,
   KNIGHT_TAUNT_EP_COST,
@@ -571,6 +578,47 @@ export function CharacterSheet({
                       +{GALLANT_CHARGE_BONUS_DAMAGE} de Ataque Físico
                     </span>{' '}
                     durante a investida.
+                  </p>
+                </div>
+
+                <div className="pt-3.5 border-t border-[#3b2c1e]/80">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="font-serif text-sm font-bold text-[#fef08a] flex items-center gap-1.5">
+                      <Flag className="w-3.5 h-3.5 text-[#facc15]" />
+                      Estandarte da Glória
+                    </h3>
+                    <span className="text-xs text-[#7dd3fc] font-mono tabular-nums font-medium">
+                      {BANNER_OF_GLORY_MP_COST} MP ·{' '}
+                      {BANNER_OF_GLORY_CAST_RANGE_METERS.toFixed(1).replace('.', ',')}m · Raio{' '}
+                      {BANNER_OF_GLORY_RADIUS_METERS.toFixed(1).replace('.', ',')}m
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
+                    Lança uma lança com estandarte que finca no chão (até{' '}
+                    <span className="font-mono tabular-nums text-[#f2dfb9]">
+                      {BANNER_OF_GLORY_CAST_RANGE_METERS.toFixed(1).replace('.', ',')}m
+                    </span>
+                    ). Inimigos na área sofrem{' '}
+                    <span className="font-mono tabular-nums text-[#93c5fd] font-semibold">
+                      {BANNER_OF_GLORY_MAGIC_DAMAGE} de dano mágico
+                    </span>{' '}
+                    +{' '}
+                    <span className="font-mono tabular-nums text-[#fde68a] font-semibold">
+                      ataque físico do cavaleiro
+                    </span>
+                    . Uma área de energia da justiça se forma em um raio de{' '}
+                    <span className="font-mono tabular-nums text-[#f2dfb9]">
+                      {BANNER_OF_GLORY_RADIUS_METERS.toFixed(1).replace('.', ',')}m
+                    </span>{' '}
+                    por{' '}
+                    <span className="font-mono tabular-nums text-[#f2dfb9]">
+                      {BANNER_OF_GLORY_DURATION_ROUNDS} rodadas
+                    </span>
+                    , concedendo{' '}
+                    <span className="font-mono tabular-nums text-[#fef08a] font-semibold">
+                      {BANNER_OF_GLORY_SHIELD_HP} pontos de escudo
+                    </span>{' '}
+                    aos aliados no início de seus turnos.
                   </p>
                 </div>
               </>

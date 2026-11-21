@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Swords } from 'lucide-react';
+import { ArenaSelectScreen } from './components/ArenaSelectScreen';
 import { CharacterCreator } from './components/CharacterCreator';
 import { CharacterSheet } from './components/CharacterSheet';
 import { TacticalArenaModal } from './components/TacticalArenaModal';
@@ -14,13 +15,21 @@ import {
   loadCharacterState,
   saveCharacterState,
 } from './game/engine';
-import type { AttributeKey, CharacterState, ClassId, GenderId, RaceId } from './game/types';
+import type {
+  AttributeKey,
+  CharacterState,
+  ClassId,
+  EnemyId,
+  GenderId,
+  RaceId,
+} from './game/types';
 
-type AppView = 'creator' | 'sheet';
+type AppView = 'creator' | 'sheet' | 'arenas';
 
 export default function App() {
   const [character, setCharacter] = useState<CharacterState>(() => loadCharacterState());
   const [activeView, setActiveView] = useState<AppView>('creator');
+  const [selectedArenaEnemyId, setSelectedArenaEnemyId] = useState<EnemyId>('goblin');
   const [isArenaOpen, setIsArenaOpen] = useState(false);
 
   // Auto-save character sheet changes to localStorage
@@ -214,7 +223,10 @@ export default function App() {
           <div className="flex items-center shrink-0">
             <button
               type="button"
-              onClick={() => setIsArenaOpen(true)}
+              onClick={() => {
+                setActiveView('arenas');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
               className="medieval-btn-gold min-h-10 px-4 py-2 rounded-sm font-serif font-bold text-xs sm:text-sm tracking-wider transition-all flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e5b865]"
             >
               <Swords className="w-4 h-4" />
@@ -239,6 +251,18 @@ export default function App() {
             onResetAttributes={handleResetAttributes}
             onConfirmCharacter={handleConfirmCharacter}
           />
+        ) : activeView === 'arenas' ? (
+          <ArenaSelectScreen
+            character={character}
+            onSelectArena={(enemyId) => {
+              setSelectedArenaEnemyId(enemyId);
+              setIsArenaOpen(true);
+            }}
+            onBackToSheet={() => {
+              setActiveView('sheet');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
         ) : (
           <>
             <CharacterSheet
@@ -248,7 +272,10 @@ export default function App() {
               onDecrementAttribute={handleDecrementAttribute}
               onResetAttributes={handleResetAttributes}
               onToggleWeapon={handleToggleWeapon}
-              onOpenArena={() => setIsArenaOpen(true)}
+              onOpenArena={() => {
+                setActiveView('arenas');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
               onOpenCreator={() => {
                 setActiveView('creator');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -315,7 +342,15 @@ export default function App() {
       <TacticalArenaModal
         isOpen={isArenaOpen}
         character={character}
-        onClose={() => setIsArenaOpen(false)}
+        initialEnemyId={selectedArenaEnemyId}
+        onClose={() => {
+          setIsArenaOpen(false);
+          setActiveView('sheet');
+        }}
+        onBackToArenaSelect={() => {
+          setIsArenaOpen(false);
+          setActiveView('arenas');
+        }}
       />
     </div>
   );

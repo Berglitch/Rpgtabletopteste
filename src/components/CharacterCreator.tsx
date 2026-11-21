@@ -43,6 +43,12 @@ import {
   GALLANT_CHARGE_BONUS_DAMAGE,
   GALLANT_CHARGE_EP_COST,
   GALLANT_CHARGE_RANGE_METERS,
+  BANNER_OF_GLORY_CAST_RANGE_METERS,
+  BANNER_OF_GLORY_DURATION_ROUNDS,
+  BANNER_OF_GLORY_MAGIC_DAMAGE,
+  BANNER_OF_GLORY_MP_COST,
+  BANNER_OF_GLORY_RADIUS_METERS,
+  BANNER_OF_GLORY_SHIELD_HP,
   HIGH_ELF_MP_PER_LEVEL,
   INITIAL_POINTS,
   KNIGHT_TAUNT_DEFENSE_BONUS,
@@ -970,6 +976,16 @@ export function CharacterCreator({
                   </span>
                   <span className="text-[#fbbf24] font-bold">
                     {gallantChargeText} dano (+{GALLANT_CHARGE_BONUS_DAMAGE})
+                  </span>
+                </div>
+                <div className="flex items-center justify-between bg-[#110c09] border border-[#8a6823] rounded-xs px-3 py-1.5">
+                  <span className="text-[#d6c7b2]">
+                    Estandarte da Glória ({BANNER_OF_GLORY_MP_COST} MP ·{' '}
+                    {BANNER_OF_GLORY_CAST_RANGE_METERS.toFixed(1).replace('.', ',')}m · Raio{' '}
+                    {BANNER_OF_GLORY_RADIUS_METERS}m · {BANNER_OF_GLORY_DURATION_ROUNDS}R)
+                  </span>
+                  <span className="text-[#fde047] font-bold">
+                    {BANNER_OF_GLORY_MAGIC_DAMAGE} Mág. + Fís. · +{BANNER_OF_GLORY_SHIELD_HP} Escudo
                   </span>
                 </div>
               </div>

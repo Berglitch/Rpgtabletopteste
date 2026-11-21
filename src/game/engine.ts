@@ -42,6 +42,7 @@ const slimeMotherArtImg = resolveImageAsset(
   'goblin-art.png'
 );
 const mapBattlegroundImg = resolveImageAsset('map-battleground.jpg');
+const mapSlimeCavernImg = resolveImageAsset('map-slime-cavern.jpg', 'map-battleground.jpg');
 
 const portraitHumanShieldmaidenImg = resolveImageAsset(
   'portrait_human_shieldmaiden_1795093741610.jpg',
@@ -212,39 +213,61 @@ const portraitRogueDryadFImg = resolveImageAsset(
 export const HERO_PORTRAIT_URL = heroWarriorValeriusImg;
 export const GOBLIN_PORTRAIT_URL = goblinArtImg;
 export const SLIME_MOTHER_PORTRAIT_URL = slimeMotherArtImg;
-export const SLIME_MINION_PORTRAIT_URL = `data:image/svg+xml;utf8,${encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
-    <defs>
-      <radialGradient id="bg" cx="50%" cy="45%" r="65%">
-        <stop offset="0%" stop-color="#17381f"/>
-        <stop offset="100%" stop-color="#07120a"/>
-      </radialGradient>
-      <radialGradient id="ooze" cx="42%" cy="32%" r="64%">
-        <stop offset="0%" stop-color="#bef264"/>
-        <stop offset="48%" stop-color="#4ade80"/>
-        <stop offset="85%" stop-color="#15803d"/>
-        <stop offset="100%" stop-color="#0f3d1e"/>
-      </radialGradient>
-      <radialGradient id="core" cx="50%" cy="55%" r="45%">
-        <stop offset="0%" stop-color="#d9f99d" stop-opacity="0.85"/>
-        <stop offset="100%" stop-color="#22c55e" stop-opacity="0"/>
-      </radialGradient>
-    </defs>
-    <rect width="120" height="120" fill="url(#bg)"/>
-    <ellipse cx="60" cy="96" rx="38" ry="11" fill="#052e16" opacity="0.85"/>
-    <path d="M22 86 C20 56, 36 28, 60 28 C84 28, 100 56, 98 86 C97 96, 82 100, 60 100 C38 100, 23 96, 22 86 Z" fill="url(#ooze)" stroke="#86efac" stroke-width="2.5"/>
-    <ellipse cx="60" cy="68" rx="26" ry="20" fill="url(#core)"/>
-    <ellipse cx="44" cy="46" rx="10" ry="6" transform="rotate(-24 44 46)" fill="#ecfccb" opacity="0.65"/>
-    <circle cx="80" cy="52" r="4" fill="#d9f99d" opacity="0.45"/>
-    <circle cx="36" cy="76" r="3.5" fill="#bef264" opacity="0.5"/>
-    <ellipse cx="47" cy="64" rx="5.5" ry="7" fill="#052e16"/>
-    <ellipse cx="73" cy="64" rx="5.5" ry="7" fill="#052e16"/>
-    <circle cx="48.5" cy="62" r="2.3" fill="#fde047"/>
-    <circle cx="74.5" cy="62" r="2.3" fill="#fde047"/>
-    <path d="M51 77 Q60 83 69 77" fill="none" stroke="#052e16" stroke-width="2.6" stroke-linecap="round"/>
-  </svg>`
-)}`;
+export const SLIME_MINION_PORTRAIT_URL = resolveImageAsset(
+  'slime_minion_custom.png',
+  'boss_slime_mother_1795267714359.jpg'
+);
 export const BATTLEGROUND_MAP_URL = mapBattlegroundImg;
+export const SLIME_CAVERN_MAP_URL = mapSlimeCavernImg;
+
+export function getArenaMapUrl(enemyId: EnemyId): string {
+  return enemyId === 'slime_mother' ? SLIME_CAVERN_MAP_URL : BATTLEGROUND_MAP_URL;
+}
+
+export interface ArenaDefinition {
+  id: EnemyId;
+  arenaName: string;
+  environmentTag: string;
+  gridImageUrl: string;
+  monsterName: string;
+  monsterSubtitle: string;
+  monsterPortraitUrl: string;
+  difficulty: 'Difícil' | 'Muito Difícil';
+  hpSummary: string;
+  threatSummary: string;
+  isBoss: boolean;
+}
+
+export const ARENA_DEFINITIONS: ArenaDefinition[] = [
+  {
+    id: 'goblin',
+    arenaName: 'Clareira da Floresta',
+    environmentTag: 'Floresta Densa · 16×10',
+    gridImageUrl: BATTLEGROUND_MAP_URL,
+    monsterName: 'Goblin Espadachim',
+    monsterSubtitle: 'Inimigo Tático · Tamanho Médio (1×1)',
+    monsterPortraitUrl: GOBLIN_PORTRAIT_URL,
+    difficulty: 'Difícil',
+    hpSummary: '45 HP',
+    threatSummary:
+      'Combatente ágil de corpo a corpo com Golpe Pesado capaz de empurrar e atordoar.',
+    isBoss: false,
+  },
+  {
+    id: 'slime_mother',
+    arenaName: 'Câmara das Raízes Sombrias',
+    environmentTag: 'Covil Subterrâneo · 16×10',
+    gridImageUrl: SLIME_CAVERN_MAP_URL,
+    monsterName: 'Slime Mãe',
+    monsterSubtitle: 'Chefe Abissal · Tamanho Grande (2×2)',
+    monsterPortraitUrl: SLIME_MOTHER_PORTRAIT_URL,
+    difficulty: 'Muito Difícil',
+    hpSummary: '400 HP',
+    threatSummary:
+      'Enxerga através da invisibilidade, invoca Slimes Pequenas, aplica veneno e desfere golpes esmagadores.',
+    isBoss: true,
+  },
+];
 
 export const DEFAULT_WEAPON: Weapon = {
   id: 'iron_longsword',
@@ -794,6 +817,13 @@ export const GALLANT_CHARGE_EP_COST = 30;
 export const GALLANT_CHARGE_RANGE_CELLS = 6; // 9,0m
 export const GALLANT_CHARGE_RANGE_METERS = 9.0;
 export const GALLANT_CHARGE_BONUS_DAMAGE = 5;
+export const BANNER_OF_GLORY_MP_COST = 3;
+export const BANNER_OF_GLORY_CAST_RANGE_METERS = 7.5;
+export const BANNER_OF_GLORY_CAST_RANGE_CELLS = 5; // 7,5m
+export const BANNER_OF_GLORY_RADIUS_METERS = 6.0;
+export const BANNER_OF_GLORY_MAGIC_DAMAGE = 10;
+export const BANNER_OF_GLORY_SHIELD_HP = 10;
+export const BANNER_OF_GLORY_DURATION_ROUNDS = 2;
 
 // Priest Skill Constants
 export const PRIEST_BASIC_EP_COST = 30;
@@ -864,6 +894,8 @@ export const SLIME_MOTHER_LEAP_PHYSICAL_DAMAGE = 5;
 export const SLIME_MOTHER_LEAP_MAGIC_DAMAGE = 5;
 export const SLIME_MOTHER_LEAP_POISON_CHANCE = 15;
 export const SLIME_MOTHER_LEAP_COOLDOWN = 3;
+export const SLIME_MOTHER_STACK_DAMAGE = 30; // Dano total dividido igualmente entre o alvo + aliados adjacentes (1,5m)
+export const SLIME_MOTHER_STACK_COOLDOWN = 6;
 
 export const SMALL_SLIME_MAX_HP = 35;
 export const SMALL_SLIME_MAX_MP = 15;
@@ -977,14 +1009,14 @@ export const CLASSES: Record<ClassId, ClassDefinition> = {
     roleLabel: 'Guardião de Vanguarda',
     baseVitals: {
       hp: 20,
-      mp: 5,
+      mp: 6,
       ep: 100,
     },
     basicAttackName: 'Golpe Simples',
     basicAttackDescription:
       'Ataque físico corpo a corpo (1,5m) com a espada equipada (15 EP). Pode causar acerto crítico (+50%).',
     startingWeapon: KNIGHT_WEAPON,
-    startingSkills: ['Provocar', 'Levantar Guarda', 'Investida Galante'],
+    startingSkills: ['Provocar', 'Levantar Guarda', 'Investida Galante', 'Estandarte da Glória'],
     skillSummaries: [
       {
         id: 'knight_taunt',
@@ -1009,6 +1041,14 @@ export const CLASSES: Record<ClassId, ClassDefinition> = {
         rangeLabel: 'Ataque · Linha reta 9,0m',
         description:
           'Avança em linha reta até 9 metros em uma direção, podendo atravessar inimigos, e desfere um golpe com +5 de Ataque Físico durante a investida.',
+      },
+      {
+        id: 'banner_of_glory',
+        name: 'Estandarte da Glória',
+        costLabel: '3 MP',
+        rangeLabel: '7,5m · Área 6,0m · 2R',
+        description:
+          'Lança uma lança com estandarte que finca no chão (7,5m). Inimigos na área de 6m sofrem 10 de dano mágico + ataque físico do cavaleiro. Uma área de energia da justiça se forma em 6m por 2 rodadas, concedendo 10 pontos de escudo aos aliados no início de seus turnos.',
       },
     ],
   },
@@ -1424,16 +1464,30 @@ export function saveCharacterState(character: CharacterState): void {
 }
 
 export function loadAudioPrefs(): AudioPrefs {
+  const defaults: AudioPrefs = {
+    musicEnabled: true,
+    isMuted: false,
+    musicVolume: 0.45,
+    sfxVolume: 0.95,
+  };
   try {
     const raw = window.localStorage.getItem(AUDIO_STORAGE_KEY);
-    if (!raw) return { musicEnabled: true, isMuted: false };
+    if (!raw) return defaults;
     const parsed = JSON.parse(raw) as Partial<AudioPrefs>;
     return {
-      musicEnabled: typeof parsed.musicEnabled === 'boolean' ? parsed.musicEnabled : true,
-      isMuted: typeof parsed.isMuted === 'boolean' ? parsed.isMuted : false,
+      musicEnabled: typeof parsed.musicEnabled === 'boolean' ? parsed.musicEnabled : defaults.musicEnabled,
+      isMuted: typeof parsed.isMuted === 'boolean' ? parsed.isMuted : defaults.isMuted,
+      musicVolume:
+        typeof parsed.musicVolume === 'number' && Number.isFinite(parsed.musicVolume)
+          ? Math.max(0, Math.min(1, parsed.musicVolume))
+          : defaults.musicVolume,
+      sfxVolume:
+        typeof parsed.sfxVolume === 'number' && Number.isFinite(parsed.sfxVolume)
+          ? Math.max(0, Math.min(1, parsed.sfxVolume))
+          : defaults.sfxVolume,
     };
   } catch {
-    return { musicEnabled: true, isMuted: false };
+    return defaults;
   }
 }
 
@@ -1801,8 +1855,14 @@ export function getEnemyCenterPx(
   };
 }
 
-export function isObstacleCell(x: number, y: number): boolean {
-  return TACTICAL_OBSTACLES.some((o) => o.x === x && o.y === y);
+export function getArenaObstacles(enemyId?: EnemyId): GridPos[] {
+  // A caverna da Slime Mãe é um salão aberto sem árvores/obstáculos de floresta
+  if (enemyId === 'slime_mother') return [];
+  return TACTICAL_OBSTACLES;
+}
+
+export function isObstacleCell(x: number, y: number, enemyId?: EnemyId): boolean {
+  return getArenaObstacles(enemyId).some((o) => o.x === x && o.y === y);
 }
 
 // Enemy facing & backstab geometry for Rogue's Letalidade (left/right matches token sprite orientation)
@@ -1857,14 +1917,15 @@ export function isBehindFacing(
 export function getBackstabCells(
   targetPos: GridPos,
   targetFacing: EnemyFacing,
-  targetSizeCells = 1
+  targetSizeCells = 1,
+  enemyId?: EnemyId
 ): GridPos[] {
   const size = Math.max(1, targetSizeCells);
   const cells: GridPos[] = [];
   for (let row = targetPos.y - 1; row <= targetPos.y + size; row++) {
     for (let col = targetPos.x - 1; col <= targetPos.x + size; col++) {
       if (col < 0 || col >= GRID_COLS || row < 0 || row >= GRID_ROWS) continue;
-      if (isObstacleCell(col, row)) continue;
+      if (isObstacleCell(col, row, enemyId)) continue;
       if (isEnemyCellAt(col, row, targetPos, size)) continue;
       if (isBehindFacing({ x: col, y: row }, targetPos, targetFacing, size)) {
         cells.push({ x: col, y: row });
@@ -1919,6 +1980,28 @@ export function getConsecrationAreaCells(center: GridPos): GridPos[] {
   return cells;
 }
 
+// Computes all grid cells inside Estandarte da Glória's 6.0m circular radius from the planted spear
+export function getBannerOfGloryAreaCells(center: GridPos): GridPos[] {
+  const cells: GridPos[] = [];
+  for (let row = 0; row < GRID_ROWS; row++) {
+    for (let col = 0; col < GRID_COLS; col++) {
+      const distMeters = Math.hypot(col - center.x, row - center.y) * CELL_METERS;
+      if (distMeters <= BANNER_OF_GLORY_RADIUS_METERS + 0.05) {
+        cells.push({ x: col, y: row });
+      }
+    }
+  }
+  return cells;
+}
+
+export function isPosInBannerOfGloryZone(
+  pos: GridPos,
+  bannerPos: GridPos,
+  radiusMeters = BANNER_OF_GLORY_RADIUS_METERS
+): boolean {
+  return Math.hypot(pos.x - bannerPos.x, pos.y - bannerPos.y) * CELL_METERS <= radiusMeters + 0.05;
+}
+
 export interface GallantChargeTarget {
   path: GridPos[];
   distanceMeters: number;
@@ -1933,7 +2016,8 @@ export function getGallantChargeTargets(
   origin: GridPos,
   enemyPos: GridPos,
   enemyAlive: boolean,
-  enemySizeCells = 1
+  enemySizeCells = 1,
+  enemyId?: EnemyId
 ): Map<string, GallantChargeTarget> {
   const targets = new Map<string, GallantChargeTarget>();
   const dirs = [
@@ -1952,7 +2036,7 @@ export function getGallantChargeTargets(
       const ny = origin.y + dir.dy * step;
 
       if (nx < 0 || nx >= GRID_COLS || ny < 0 || ny >= GRID_ROWS) break;
-      if (isObstacleCell(nx, ny)) break;
+      if (isObstacleCell(nx, ny, enemyId)) break;
 
       linePath.push({ x: nx, y: ny });
 
@@ -2074,7 +2158,8 @@ export function calculateKnockbackTrajectory(
   attackerPos: GridPos,
   targetPos: GridPos,
   pushMeters: number,
-  attackerSizeCells = 1
+  attackerSizeCells = 1,
+  enemyId?: EnemyId
 ): { path: GridPos[]; metersPushed: number; hitObstacle: boolean } {
   const nearestAttacker = getNearestEnemyCell(targetPos, attackerPos, attackerSizeCells);
   const stepX = Math.sign(targetPos.x - nearestAttacker.x);
@@ -2103,7 +2188,7 @@ export function calculateKnockbackTrajectory(
     }
 
     const blocked =
-      isObstacleCell(nx, ny) || isEnemyCellAt(nx, ny, attackerPos, attackerSizeCells);
+      isObstacleCell(nx, ny, enemyId) || isEnemyCellAt(nx, ny, attackerPos, attackerSizeCells);
 
     if (blocked) {
       hitObstacle = true;
@@ -2124,7 +2209,8 @@ export function computeEnemyMove(
   playerPos: GridPos,
   maxMeters = MAX_MOVE_METERS,
   sizeCells = 1,
-  extraBlockedCells: GridPos[] = []
+  extraBlockedCells: GridPos[] = [],
+  enemyId?: EnemyId
 ): { path: GridPos[]; metersSpent: number } {
   const size = Math.max(1, sizeCells);
   const startDist = getDistanceToEnemy(playerPos, enemyPos, size);
@@ -2132,7 +2218,7 @@ export function computeEnemyMove(
     return { path: [{ ...enemyPos }], metersSpent: 0 };
   }
 
-  const blocked = [...TACTICAL_OBSTACLES, playerPos, ...extraBlockedCells];
+  const blocked = [...getArenaObstacles(enemyId), playerPos, ...extraBlockedCells];
   const reachable = getReachableCellsForSize(enemyPos.x, enemyPos.y, maxMeters, blocked, size);
   let bestKey: string | null = null;
   let bestDist = startDist;
@@ -2216,7 +2302,8 @@ export function computeSlimeLeapLanding(
   blockedCells: GridPos[],
   sizeCells = SLIME_MOTHER_SIZE_CELLS,
   leapRangeMeters = SLIME_MOTHER_LEAP_RANGE_METERS,
-  aoeRadiusMeters = SLIME_MOTHER_LEAP_AOE_RADIUS_METERS
+  aoeRadiusMeters = SLIME_MOTHER_LEAP_AOE_RADIUS_METERS,
+  enemyId: EnemyId = 'slime_mother'
 ): { landingPos: GridPos; didRelocate: boolean; leapMeters: number } | null {
   if (isCellInSlimeLeapAoE(playerPos, bossPos, sizeCells, aoeRadiusMeters)) {
     return { landingPos: { ...bossPos }, didRelocate: false, leapMeters: 0 };
@@ -2229,7 +2316,7 @@ export function computeSlimeLeapLanding(
       for (let dx = 0; dx < size; dx++) {
         const cx = ax + dx;
         const cy = ay + dy;
-        if (isObstacleCell(cx, cy)) return false;
+        if (isObstacleCell(cx, cy, enemyId)) return false;
         if (cx === playerPos.x && cy === playerPos.y) return false;
         if (blockedCells.some((b) => b.x === cx && b.y === cy)) return false;
       }
@@ -2272,7 +2359,8 @@ export function findSlimeSummonCell(
   bossPos: GridPos,
   bossSizeCells: number,
   blockedCells: GridPos[],
-  playerPos: GridPos
+  playerPos: GridPos,
+  enemyId: EnemyId = 'slime_mother'
 ): GridPos | null {
   const size = Math.max(1, bossSizeCells);
   const candidates: GridPos[] = [];
@@ -2280,7 +2368,7 @@ export function findSlimeSummonCell(
     for (let col = bossPos.x - 1; col <= bossPos.x + size; col++) {
       if (col < 0 || col >= GRID_COLS || row < 0 || row >= GRID_ROWS) continue;
       if (isEnemyCellAt(col, row, bossPos, size)) continue;
-      if (isObstacleCell(col, row)) continue;
+      if (isObstacleCell(col, row, enemyId)) continue;
       if (col === playerPos.x && row === playerPos.y) continue;
       if (blockedCells.some((b) => b.x === col && b.y === row)) continue;
       candidates.push({ x: col, y: row });
@@ -2348,6 +2436,43 @@ export function createSmallSlimeMinion(
     tauntedDefenseBonus: 0,
     bleedTurns: 0,
     bleedDamagePerTurn: 0,
+  };
+}
+
+/**
+ * Selects any living hostile combatant on the grid for Slime Mãe's Stack Marker.
+ * Explicitly ignores Provocar (taunt) so any party member can be targeted.
+ */
+export function selectStackMarkerTarget<T extends { id: 'player' | string; hp: number }>(
+  hostileCombatants: T[]
+): T | null {
+  const living = hostileCombatants.filter((c) => c.hp > 0);
+  if (living.length === 0) return null;
+  const idx = Math.floor(Math.random() * living.length);
+  return living[idx];
+}
+
+/**
+ * Computes Stack Marker shared damage by equal division:
+ * - Marked target always counts as 1 player, plus each adjacent living ally (Chebyshev distance <= 1 / 1.5m).
+ * - Example: 40 damage with 3 total players (target + 2 adjacent allies) = Math.round(40 / 3) = 13 each.
+ */
+export function computeStackMarkerDamage(
+  baseMaxDamage: number,
+  targetPos: GridPos,
+  otherLivingAllyPositions: GridPos[]
+): { adjacentCount: number; participants: number; damageEach: number } {
+  const adjacentCount = otherLivingAllyPositions.filter(
+    (pos) =>
+      Math.max(Math.abs(pos.x - targetPos.x), Math.abs(pos.y - targetPos.y)) <= 1 &&
+      (pos.x !== targetPos.x || pos.y !== targetPos.y)
+  ).length;
+  const participants = 1 + adjacentCount;
+  const damageEach = Math.max(1, Math.round(baseMaxDamage / participants));
+  return {
+    adjacentCount,
+    participants,
+    damageEach,
   };
 }
 
@@ -2446,6 +2571,9 @@ export function createInitialCombatState(
         tankBusterTargetStartPos: null,
         tankBusterStartDist: 0,
         leapSlamCooldown: 0,
+        stackMarkerCooldown: 0,
+        stackMarkerCharging: false,
+        stackMarkerTarget: null,
         summonChance: SLIME_MOTHER_SUMMON_CHANCE,
         maxMinions: SLIME_MOTHER_MAX_MINIONS,
         skills: {
@@ -2466,6 +2594,14 @@ export function createInitialCombatState(
             magicDamage: SLIME_MOTHER_LEAP_MAGIC_DAMAGE,
             poisonChance: SLIME_MOTHER_LEAP_POISON_CHANCE,
             cooldown: SLIME_MOTHER_LEAP_COOLDOWN,
+          },
+          stackMarker: {
+            id: 'slime_acid_collapse',
+            name: 'Colapso Ácido',
+            baseMaxDamage: SLIME_MOTHER_STACK_DAMAGE,
+            chargeRounds: 1,
+            cooldown: SLIME_MOTHER_STACK_COOLDOWN,
+            ignoresTaunt: true,
           },
         },
         dexterity: enemyDex,
@@ -2523,6 +2659,9 @@ export function createInitialCombatState(
         tankBusterTargetStartPos: null,
         tankBusterStartDist: 0,
         leapSlamCooldown: 0,
+        stackMarkerCooldown: 0,
+        stackMarkerCharging: false,
+        stackMarkerTarget: null,
         summonChance: 0,
         maxMinions: 0,
         skills: {
@@ -2561,6 +2700,8 @@ export function createInitialCombatState(
       arcaneArmorTurns: 0,
       sacredShieldHp: 0,
       sacredShieldTurns: 0,
+      bannerShieldHp: 0,
+      bannerShieldTurns: 0,
       regenerationTurns: 0,
       regenerationHealPerTurn: 0,
       poisonTurns: 0,
@@ -2590,6 +2731,8 @@ export function createInitialCombatState(
     isFireBreathModeActive: false,
     isGallantChargeModeActive: false,
     isConsecrationModeActive: false,
+    isBannerOfGloryModeActive: false,
+    plantedBanner: null,
     isAnimatingMove: false,
     awaitingReaction: false,
     pendingAttack: null,
