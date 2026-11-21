@@ -22,20 +22,16 @@ import type {
   SecondaryStats,
   Weapon,
 } from './types';
-
-const BUNDLED_IMAGE_MODULES = import.meta.glob('../assets/images/*.{jpg,png}', {
-  eager: true,
-  import: 'default',
-}) as Record<string, string>;
+import { EMBEDDED_IMAGE_ASSETS } from './embeddedAssets';
 
 function resolveImageAsset(filename: string, fallbackFilename?: string): string {
-  const direct = BUNDLED_IMAGE_MODULES[`../assets/images/${filename}`];
+  const direct = EMBEDDED_IMAGE_ASSETS[filename];
   if (direct) return direct;
   if (fallbackFilename) {
-    const fallback = BUNDLED_IMAGE_MODULES[`../assets/images/${fallbackFilename}`];
+    const fallback = EMBEDDED_IMAGE_ASSETS[fallbackFilename];
     if (fallback) return fallback;
   }
-  const firstAvailable = Object.values(BUNDLED_IMAGE_MODULES)[0];
+  const firstAvailable = Object.values(EMBEDDED_IMAGE_ASSETS)[0];
   return firstAvailable ?? '';
 }
 

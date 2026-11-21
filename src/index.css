@@ -187,9 +187,7 @@ body {
   transform-origin: 0 0;
   will-change: transform;
   background-color: #1a2818;
-  background-image:
-    linear-gradient(rgba(16, 10, 5, 0.12), rgba(16, 10, 5, 0.22)),
-    url("./assets/images/map-battleground.jpg");
+  background-image: linear-gradient(rgba(16, 10, 5, 0.12), rgba(16, 10, 5, 0.22));
   background-size: 100% 100%, cover;
   background-position: center, center;
   background-repeat: no-repeat, no-repeat;

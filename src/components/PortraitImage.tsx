@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Shield, Skull } from 'lucide-react';
 
 interface PortraitImageProps {
@@ -18,7 +18,11 @@ export function PortraitImage({
 }: PortraitImageProps) {
   const [failed, setFailed] = useState(false);
 
-  if (failed) {
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
+
+  if (failed || !src) {
     return (
       <div
         role="img"

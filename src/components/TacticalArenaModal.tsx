@@ -44,6 +44,7 @@ import {
   ARCANE_BOLT_RANGE_CELLS,
   ARCANE_BOLT_UPGRADED_MP_COST,
   BASIC_ATTACK_EP_COST,
+  BATTLEGROUND_MAP_URL,
   BOARD_PIXEL_H,
   BOARD_PIXEL_W,
   CELL_METERS,
@@ -8210,6 +8211,7 @@ export function TacticalArenaModal({ isOpen, character, onClose }: TacticalArena
                 }`}
                 style={{
                   transform: `translate3d(${camera.x}px, ${camera.y}px, 0) scale(${camera.zoom})`,
+                  backgroundImage: `linear-gradient(rgba(16, 10, 5, 0.12), rgba(16, 10, 5, 0.22)), url("${BATTLEGROUND_MAP_URL}")`,
                 }}
               >
                 {/* 16x10 Grid Cells */}
