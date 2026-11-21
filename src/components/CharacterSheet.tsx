@@ -4,6 +4,7 @@ import {
   Crown,
   Droplet,
   Eye,
+  EyeOff,
   Flame,
   Heart,
   Megaphone,
@@ -12,7 +13,9 @@ import {
   Plus,
   RotateCcw,
   Shield,
+  Skull,
   Sparkles,
+  Sun,
   Sword,
   Swords,
   Target,
@@ -22,22 +25,71 @@ import {
   Zap,
 } from 'lucide-react';
 import {
+  ARCANE_ARMOR_DURATION_ROUNDS,
+  ARCANE_ARMOR_MP_COST,
+  ARCANE_ARMOR_PHYSICAL_DEFENSE_BONUS,
   ATTRIBUTE_LIST,
+  CONSECRATION_CAST_RANGE_METERS,
+  CONSECRATION_HEAL,
+  CONSECRATION_MP_COST,
+  CONSECRATION_RADIUS_METERS,
+  COUNTER_ATTACK_EP_COST,
+  DAGGER_THROW_BLEED_DAMAGE,
+  DAGGER_THROW_BLEED_ROUNDS,
+  DAGGER_THROW_BONUS_DAMAGE,
+  DAGGER_THROW_EP_COST,
+  DAGGER_THROW_RANGE_METERS,
+  DOUBLE_STRIKE_EP_COST,
+  EXECUTIONER_BASE_BONUS_DAMAGE,
+  EXECUTIONER_EP_COST,
+  EXECUTIONER_LOW_HP_BONUS_DAMAGE,
+  GALLANT_CHARGE_BONUS_DAMAGE,
+  GALLANT_CHARGE_EP_COST,
+  GALLANT_CHARGE_RANGE_METERS,
   INITIAL_POINTS,
+  KNIGHT_TAUNT_DEFENSE_BONUS,
+  KNIGHT_TAUNT_EP_COST,
+  LETHALITY_CRIT_CHANCE,
+  LETHALITY_EP_COST,
+  LETHALITY_STEALTH_CRIT_DMG_BONUS,
+  PRIEST_BASIC_EP_COST,
+  PRIEST_BASIC_RANGE_METERS,
+  RAISE_GUARD_EP_COST,
+  RAISE_GUARD_PHYSICAL_DEFENSE_BONUS,
+  RESTORING_LIGHT_BASE_HEAL,
+  RESTORING_LIGHT_HEAL_UPGRADE_BONUS,
+  RESTORING_LIGHT_HEAL_UPGRADE_MP,
+  RESTORING_LIGHT_MP_COST,
+  RESTORING_LIGHT_REGEN_HEAL_PER_TURN,
+  RESTORING_LIGHT_REGEN_ROUNDS,
+  RESTORING_LIGHT_REGEN_UPGRADE_MP,
+  SACRED_PROTECTION_DURATION_ROUNDS,
+  SACRED_PROTECTION_MP_COST,
+  SACRED_PROTECTION_SHIELD_HP,
+  SPRINT_EP_COST,
+  STEALTH_BONUS_DAMAGE,
+  STEALTH_DETECTION_CHANCE,
+  STEALTH_DURATION_ROUNDS,
+  STEALTH_EP_COST,
+  STEALTH_EXTRA_DAMAGE_TAKEN,
   getArcaneBoltDamage,
-  getArcaneShieldAmount,
+  getArcaneBoltUpgradedDamage,
   getCalculatedStrength,
   getCarryCapacity,
   getCharacterPortraitUrl,
   getClassDefinition,
   getDwarfDefenseBonus,
+  getFireBreathDamage,
   getGenderLabel,
   getHighElfLevelMpBonus,
   getMageBasicAttackRange,
   getMaxEp,
   getMaxHp,
   getMaxMp,
+  getPriestBasicAttackRange,
+  getScaledHealAmount,
   getSecondaryStats,
+  getWeaponDamageRange,
 } from '../game/engine';
 import type { AttributeKey, CharacterState } from '../game/types';
 import { PortraitImage } from './PortraitImage';
@@ -83,13 +135,54 @@ export function CharacterSheet({
   const elfMpBonus = getHighElfLevelMpBonus(character);
   const portraitUrl = getCharacterPortraitUrl(character);
   const dmgRange = secondary.physicalDamage;
+  const executionerBaseRange = getWeaponDamageRange(character, EXECUTIONER_BASE_BONUS_DAMAGE);
+  const executionerLowHpRange = getWeaponDamageRange(character, EXECUTIONER_LOW_HP_BONUS_DAMAGE);
+  const gallantChargeRange = getWeaponDamageRange(character, GALLANT_CHARGE_BONUS_DAMAGE);
+  const daggerThrowRange = getWeaponDamageRange(character, DAGGER_THROW_BONUS_DAMAGE);
+  const lethalityRange = getWeaponDamageRange(character, character.attributes.dexterity);
+  const priestBasicRange = getPriestBasicAttackRange(character);
+  const priestRestoringBaseHeal = getScaledHealAmount(RESTORING_LIGHT_BASE_HEAL, character);
+  const priestRestoringUpgradedHeal = getScaledHealAmount(
+    RESTORING_LIGHT_BASE_HEAL + RESTORING_LIGHT_HEAL_UPGRADE_BONUS,
+    character
+  );
+  const priestRestoringRegenHeal = getScaledHealAmount(
+    RESTORING_LIGHT_REGEN_HEAL_PER_TURN,
+    character
+  );
+  const priestConsecrationHeal = getScaledHealAmount(CONSECRATION_HEAL, character);
   const mageBasicRange = getMageBasicAttackRange(character);
   const arcaneBoltDmg = getArcaneBoltDamage(character);
-  const arcaneShieldVal = getArcaneShieldAmount(character);
+  const arcaneBoltUpgradedDmg = getArcaneBoltUpgradedDamage(character);
+  const fireBreathDmg = getFireBreathDamage(character);
   const spentPoints = INITIAL_POINTS - character.unspentPoints;
 
   const physicalDamageText =
     dmgRange.min === dmgRange.max ? `${dmgRange.min}` : `${dmgRange.min}–${dmgRange.max}`;
+  const executionerBaseText =
+    executionerBaseRange.min === executionerBaseRange.max
+      ? `${executionerBaseRange.min}`
+      : `${executionerBaseRange.min}–${executionerBaseRange.max}`;
+  const executionerLowHpText =
+    executionerLowHpRange.min === executionerLowHpRange.max
+      ? `${executionerLowHpRange.min}`
+      : `${executionerLowHpRange.min}–${executionerLowHpRange.max}`;
+  const gallantChargeText =
+    gallantChargeRange.min === gallantChargeRange.max
+      ? `${gallantChargeRange.min}`
+      : `${gallantChargeRange.min}–${gallantChargeRange.max}`;
+  const daggerThrowText =
+    daggerThrowRange.min === daggerThrowRange.max
+      ? `${daggerThrowRange.min}`
+      : `${daggerThrowRange.min}–${daggerThrowRange.max}`;
+  const lethalityText =
+    lethalityRange.min === lethalityRange.max
+      ? `${lethalityRange.min}`
+      : `${lethalityRange.min}–${lethalityRange.max}`;
+  const priestBasicText =
+    priestBasicRange.min === priestBasicRange.max
+      ? `${priestBasicRange.min}`
+      : `${priestBasicRange.min}–${priestBasicRange.max}`;
   const mageBasicText =
     mageBasicRange.min === mageBasicRange.max
       ? `${mageBasicRange.min}`
@@ -167,6 +260,14 @@ export function CharacterSheet({
       hint: 'Base 90% (+1% por ponto em Destreza)',
       icon: Crosshair,
       accent: 'text-[#e6d7be]',
+    },
+    {
+      key: 'healingBonus',
+      label: 'Bônus de Cura',
+      value: `+${secondary.healingBonus}`,
+      hint: '+1 de cura flat a cada 3 pontos em Sabedoria',
+      icon: Heart,
+      accent: 'text-[#6ee7b7]',
     },
   ];
 
@@ -351,35 +452,310 @@ export function CharacterSheet({
                 <div className="pt-3.5 border-t border-[#3b2c1e]/80">
                   <div className="flex items-baseline justify-between gap-2">
                     <h3 className="font-serif text-sm font-bold text-[#f2dfb9] flex items-center gap-1.5">
-                      <Megaphone className="w-3.5 h-3.5 text-[#f28b82]" />
-                      Provocar I
-                    </h3>
-                    <span className="text-xs text-[#e5b865] font-mono tabular-nums font-medium">
-                      Ação Padrão · 30 EP
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
-                    Habilidade inicial de Guerreiro: afeta apenas{' '}
-                    <strong className="text-[#ede3d2]">1 inimigo</strong> a até{' '}
-                    <span className="font-mono tabular-nums text-[#f2dfb9]">6,0m</span>, obrigando-o a
-                    atacar exclusivamente quem usou a habilidade durante{' '}
-                    <span className="font-mono tabular-nums text-[#f2dfb9]">2 rodadas</span>.
-                  </p>
-                </div>
-
-                <div className="pt-3.5 border-t border-[#3b2c1e]/80">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <h3 className="font-serif text-sm font-bold text-[#f2dfb9] flex items-center gap-1.5">
                       <Flame className="w-3.5 h-3.5 text-[#f09a4e]" />
                       Golpe Duplo
                     </h3>
                     <span className="text-xs text-[#e5b865] font-mono tabular-nums font-medium">
-                      Ação Padrão · 30 EP
+                      Ação Padrão · {DOUBLE_STRIKE_EP_COST} EP
                     </span>
                   </div>
                   <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
                     Arte Marcial de Guerreiro: desfere dois ataques físicos consecutivos com a espada
                     equipada no mesmo turno (alcance 1,5m).
+                  </p>
+                </div>
+
+                <div className="pt-3.5 border-t border-[#3b2c1e]/80">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="font-serif text-sm font-bold text-[#fda4af] flex items-center gap-1.5">
+                      <Skull className="w-3.5 h-3.5 text-[#fb7185]" />
+                      Carrasco
+                    </h3>
+                    <span className="text-xs text-[#e5b865] font-mono tabular-nums font-medium">
+                      {EXECUTIONER_EP_COST} EP · {executionerBaseText} / {executionerLowHpText} Fís.
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
+                    Golpe poderoso (alcance 1,5m): causa o dano do ataque básico{' '}
+                    <span className="font-mono tabular-nums text-[#fda4af] font-semibold">
+                      +{EXECUTIONER_BASE_BONUS_DAMAGE} de dano
+                    </span>
+                    . Se o inimigo estiver com{' '}
+                    <strong className="text-[#ede3d2]">50% de vida ou menos</strong>, o bônus aumenta
+                    para{' '}
+                    <span className="font-mono tabular-nums text-[#fb7185] font-semibold">
+                      +{EXECUTIONER_LOW_HP_BONUS_DAMAGE}
+                    </span>
+                    .
+                  </p>
+                </div>
+
+                <div className="pt-3.5 border-t border-[#3b2c1e]/80">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="font-serif text-sm font-bold text-[#c7e6f7] flex items-center gap-1.5">
+                      <Swords className="w-3.5 h-3.5 text-[#f09a4e]" />
+                      Contra-Ataque
+                    </h3>
+                    <span className="text-xs text-[#e5b865] font-mono tabular-nums font-medium">
+                      Reação · {COUNTER_ATTACK_EP_COST} EP · 50% Dano
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
+                    Ao sofrer um ataque inimigo dentro do alcance da arma (1,5m), você desfere um{' '}
+                    <strong className="text-[#ede3d2]">ataque básico</strong> contra o atacante
+                    causando <span className="font-mono text-[#f2dfb9]">metade do dano</span>.
+                  </p>
+                </div>
+              </>
+            ) : character.classId === 'knight' ? (
+              <>
+                <div className="pt-3.5 border-t border-[#3b2c1e]/80">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="font-serif text-sm font-bold text-[#f2dfb9] flex items-center gap-1.5">
+                      <Megaphone className="w-3.5 h-3.5 text-[#f28b82]" />
+                      Provocar
+                    </h3>
+                    <span className="text-xs text-[#e5b865] font-mono tabular-nums font-medium">
+                      Ação Padrão · {KNIGHT_TAUNT_EP_COST} EP
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
+                    Obriga <strong className="text-[#ede3d2]">1 inimigo</strong> a até{' '}
+                    <span className="font-mono tabular-nums text-[#f2dfb9]">6,0m</span> a atacar
+                    exclusivamente você por{' '}
+                    <span className="font-mono tabular-nums text-[#f2dfb9]">2 rodadas</span> e concede{' '}
+                    <span className="font-mono tabular-nums text-[#fde68a] font-semibold">
+                      +{KNIGHT_TAUNT_DEFENSE_BONUS} Defesa Física e Mágica
+                    </span>{' '}
+                    contra o inimigo enquanto o efeito de Provocar durar.
+                  </p>
+                </div>
+
+                <div className="pt-3.5 border-t border-[#3b2c1e]/80">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="font-serif text-sm font-bold text-[#fef08a] flex items-center gap-1.5">
+                      <Shield className="w-3.5 h-3.5 text-[#f3d189]" />
+                      Levantar Guarda
+                    </h3>
+                    <span className="text-xs text-[#e5b865] font-mono tabular-nums font-medium">
+                      Reação · {RAISE_GUARD_EP_COST} EP
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
+                    Habilidade de reação ativada ao receber um ataque inimigo: concede{' '}
+                    <span className="font-mono tabular-nums text-[#fde68a] font-semibold">
+                      +{RAISE_GUARD_PHYSICAL_DEFENSE_BONUS} de Defesa Física
+                    </span>{' '}
+                    contra o próximo ataque.
+                  </p>
+                </div>
+
+                <div className="pt-3.5 border-t border-[#3b2c1e]/80">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="font-serif text-sm font-bold text-[#fde68a] flex items-center gap-1.5">
+                      <Wind className="w-3.5 h-3.5 text-[#fbbf24]" />
+                      Investida Galante
+                    </h3>
+                    <span className="text-xs text-[#e5b865] font-mono tabular-nums font-medium">
+                      {GALLANT_CHARGE_EP_COST} EP · {gallantChargeText} Físico
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
+                    Ataque em investida: avança em linha reta até{' '}
+                    <span className="font-mono tabular-nums text-[#f2dfb9]">
+                      {GALLANT_CHARGE_RANGE_METERS.toFixed(1).replace('.', ',')}m
+                    </span>{' '}
+                    em uma direção, <strong className="text-[#ede3d2]">podendo atravessar inimigos</strong>,
+                    e golpeia o inimigo no trajeto com{' '}
+                    <span className="font-mono tabular-nums text-[#fde68a] font-semibold">
+                      +{GALLANT_CHARGE_BONUS_DAMAGE} de Ataque Físico
+                    </span>{' '}
+                    durante a investida.
+                  </p>
+                </div>
+              </>
+            ) : character.classId === 'priest' ? (
+              <>
+                <div className="pt-3.5 border-t border-[#3b2c1e]/80">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="font-serif text-sm font-bold text-[#fef08a] flex items-center gap-1.5">
+                      <Sun className="w-3.5 h-3.5 text-[#facc15]" />
+                      Raio Divino
+                    </h3>
+                    <span className="text-xs text-[#e5b865] font-mono tabular-nums font-medium">
+                      {PRIEST_BASIC_EP_COST} EP · {priestBasicText} Mágico ·{' '}
+                      {PRIEST_BASIC_RANGE_METERS.toFixed(1).replace('.', ',')}m
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
+                    Ataque básico canalizado pelo <strong className="text-[#ede3d2]">Grimório Sagrado</strong>:
+                    dispara um leve feixe de energia divina que causa dano mágico.
+                  </p>
+                </div>
+
+                <div className="pt-3.5 border-t border-[#3b2c1e]/80">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="font-serif text-sm font-bold text-[#6ee7b7] flex items-center gap-1.5">
+                      <Heart className="w-3.5 h-3.5 text-[#34d399]" />
+                      Luz Restauradora
+                    </h3>
+                    <span className="text-xs text-[#84c4e6] font-mono tabular-nums font-medium">
+                      {RESTORING_LIGHT_MP_COST} MP (+{RESTORING_LIGHT_HEAL_UPGRADE_MP}/+
+                      {RESTORING_LIGHT_REGEN_UPGRADE_MP} MP)
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
+                    Cura{' '}
+                    <span className="font-mono tabular-nums text-[#6ee7b7] font-semibold">
+                      {priestRestoringBaseHeal} HP
+                    </span>
+                    {secondary.healingBonus > 0 && (
+                      <span className="font-mono text-[#86efac]">
+                        {' '}
+                        (+{secondary.healingBonus} Sab.)
+                      </span>
+                    )}{' '}
+                    do alvo. Aprimoramentos:{' '}
+                    <strong className="text-[#ede3d2]">+{RESTORING_LIGHT_HEAL_UPGRADE_MP} PM</strong>{' '}
+                    aumenta a cura para{' '}
+                    <span className="font-mono tabular-nums text-[#6ee7b7]">
+                      {priestRestoringUpgradedHeal} HP
+                    </span>
+                    ;{' '}
+                    <strong className="text-[#ede3d2]">+{RESTORING_LIGHT_REGEN_UPGRADE_MP} PM</strong>{' '}
+                    concede <strong className="text-[#fde68a]">Regeneração</strong> (+
+                    {priestRestoringRegenHeal} HP no início de cada turno por{' '}
+                    {RESTORING_LIGHT_REGEN_ROUNDS} rodadas).
+                  </p>
+                </div>
+
+                <div className="pt-3.5 border-t border-[#3b2c1e]/80">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="font-serif text-sm font-bold text-[#fde68a] flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-[#facc15]" />
+                      Consagração
+                    </h3>
+                    <span className="text-xs text-[#84c4e6] font-mono tabular-nums font-medium">
+                      {CONSECRATION_MP_COST} MP · {CONSECRATION_CAST_RANGE_METERS.toFixed(1).replace('.', ',')}m (Raio{' '}
+                      {CONSECRATION_RADIUS_METERS.toFixed(1).replace('.', ',')}m)
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
+                    Consagra um ponto a até{' '}
+                    <span className="font-mono tabular-nums text-[#f2dfb9]">
+                      {CONSECRATION_CAST_RANGE_METERS.toFixed(1).replace('.', ',')}m
+                    </span>
+                    , curando{' '}
+                    <span className="font-mono tabular-nums text-[#6ee7b7] font-semibold">
+                      {priestConsecrationHeal} pontos de vida
+                    </span>
+                    {secondary.healingBonus > 0 && (
+                      <span className="font-mono text-[#86efac]">
+                        {' '}
+                        (+{secondary.healingBonus} Sab.)
+                      </span>
+                    )}{' '}
+                    em um raio de{' '}
+                    <span className="font-mono tabular-nums text-[#f2dfb9]">
+                      {CONSECRATION_RADIUS_METERS.toFixed(1).replace('.', ',')}m
+                    </span>
+                    .
+                  </p>
+                </div>
+
+                <div className="pt-3.5 border-t border-[#3b2c1e]/80">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="font-serif text-sm font-bold text-[#fffbeb] flex items-center gap-1.5">
+                      <Shield className="w-3.5 h-3.5 text-[#fde68a]" />
+                      Proteção Sagrada
+                    </h3>
+                    <span className="text-xs text-[#84c4e6] font-mono tabular-nums font-medium">
+                      {SACRED_PROTECTION_MP_COST} MP · +{SACRED_PROTECTION_SHIELD_HP} Escudo (
+                      {SACRED_PROTECTION_DURATION_ROUNDS}R)
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
+                    Envolve o alvo com um escudo divino que concede{' '}
+                    <span className="font-mono tabular-nums text-[#fef08a] font-semibold">
+                      {SACRED_PROTECTION_SHIELD_HP} pontos de escudo (sobrevida)
+                    </span>{' '}
+                    durante {SACRED_PROTECTION_DURATION_ROUNDS} rodada.
+                  </p>
+                </div>
+              </>
+            ) : character.classId === 'rogue' ? (
+              <>
+                <div className="pt-3.5 border-t border-[#3b2c1e]/80">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="font-serif text-sm font-bold text-[#fca5a5] flex items-center gap-1.5">
+                      <Crosshair className="w-3.5 h-3.5 text-[#ef4444]" />
+                      Arremesso de Adaga
+                    </h3>
+                    <span className="text-xs text-[#e5b865] font-mono tabular-nums font-medium">
+                      {DAGGER_THROW_EP_COST} EP · {DAGGER_THROW_RANGE_METERS.toFixed(1).replace('.', ',')}m · {daggerThrowText} Fís.
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
+                    Lança uma adaga causando dano físico padrão{' '}
+                    <span className="font-mono text-[#fca5a5] font-semibold">
+                      +{DAGGER_THROW_BONUS_DAMAGE} ({daggerThrowText})
+                    </span>{' '}
+                    e <strong className="text-[#fca5a5]">Sangramento</strong> ({DAGGER_THROW_BLEED_DAMAGE} de dano por rodada durante{' '}
+                    {DAGGER_THROW_BLEED_ROUNDS} rodadas; não pode causar acerto crítico).
+                  </p>
+                </div>
+
+                <div className="pt-3.5 border-t border-[#3b2c1e]/80">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="font-serif text-sm font-bold text-[#d8b4fe] flex items-center gap-1.5">
+                      <EyeOff className="w-3.5 h-3.5 text-[#a855f7]" />
+                      Furtividade
+                    </h3>
+                    <span className="text-xs text-[#e5b865] font-mono tabular-nums font-medium">
+                      {STEALTH_EP_COST} EP · {STEALTH_DURATION_ROUNDS} rodadas
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
+                    Entra em invisibilidade por {STEALTH_DURATION_ROUNDS} rodadas mantendo seu deslocamento normal (inimigos têm{' '}
+                    <span className="font-mono text-[#e9d5ff] font-semibold">{STEALTH_DETECTION_CHANCE}%</span> de chance de perceber sua presença). Enquanto invisível, seu próximo ataque básico causa{' '}
+                    <span className="font-mono text-[#d8b4fe] font-semibold">+{STEALTH_BONUS_DAMAGE} dano físico</span>, mas você sofre{' '}
+                    <span className="font-mono text-[#fca5a5] font-semibold">+{STEALTH_EXTRA_DAMAGE_TAKEN} dano extra</span>. Atacar encerra a furtividade.
+                  </p>
+                </div>
+
+                <div className="pt-3.5 border-t border-[#3b2c1e]/80">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="font-serif text-sm font-bold text-[#6ee7b7] flex items-center gap-1.5">
+                      <Wind className="w-3.5 h-3.5 text-[#10b981]" />
+                      Disparada
+                    </h3>
+                    <span className="text-xs text-[#e5b865] font-mono tabular-nums font-medium">
+                      {SPRINT_EP_COST} EP · 2× Deslocamento
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
+                    Permite andar até o dobro do seu deslocamento (<span className="font-mono text-[#6ee7b7]">12,0m</span>) neste turno sem consumir sua Ação Padrão.
+                  </p>
+                </div>
+
+                <div className="pt-3.5 border-t border-[#3b2c1e]/80">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <h3 className="font-serif text-sm font-bold text-[#fda4af] flex items-center gap-1.5">
+                      <Flame className="w-3.5 h-3.5 text-[#f43f5e]" />
+                      Letalidade
+                    </h3>
+                    <span className="text-xs text-[#e5b865] font-mono tabular-nums font-medium">
+                      {LETHALITY_EP_COST} EP · {lethalityText} Fís. · Costas
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
+                    Usável apenas nas <strong className="text-[#ede3d2]">costas do inimigo</strong> (1,5m): desfere um ataque somando sua{' '}
+                    <span className="font-mono text-[#fda4af] font-semibold">
+                      Destreza (+{character.attributes.dexterity})
+                    </span>{' '}
+                    ao dano, com{' '}
+                    <span className="font-mono text-[#fda4af] font-semibold">{LETHALITY_CRIT_CHANCE}% de chance crítica</span>. Se estiver invisível, ganha também{' '}
+                    <span className="font-mono text-[#d8b4fe] font-semibold">+{LETHALITY_STEALTH_CRIT_DMG_BONUS}% de dano crítico</span> (+75% total).
                   </p>
                 </div>
               </>
@@ -416,8 +792,12 @@ export function CharacterSheet({
                     <span className="font-mono tabular-nums text-[#bae6fd] font-semibold">
                       {arcaneBoltDmg} de dano mágico
                     </span>{' '}
-                    (5 + Dano Mágico). Com +2 MP (5 MP total), dispara 2 setas no mesmo alvo ou em
-                    alvos diferentes.
+                    (5 + Dano Mágico). Com +2 MP (5 MP total), dispara 2 setas causando metade do
+                    dano em cada uma (
+                    <span className="font-mono tabular-nums text-[#c4b5fd] font-semibold">
+                      2×{arcaneBoltUpgradedDmg}
+                    </span>
+                    ).
                   </p>
                 </div>
 
@@ -425,18 +805,23 @@ export function CharacterSheet({
                   <div className="flex items-baseline justify-between gap-2">
                     <h3 className="font-serif text-sm font-bold text-[#bae6fd] flex items-center gap-1.5">
                       <Shield className="w-3.5 h-3.5 text-[#7dd3fc]" />
-                      Escudo Arcano
+                      Armadura Arcana
                     </h3>
                     <span className="text-xs text-[#84c4e6] font-mono tabular-nums font-medium">
-                      5 MP · {arcaneShieldVal} Sobrevida
+                      {ARCANE_ARMOR_MP_COST} MP · +{ARCANE_ARMOR_PHYSICAL_DEFENSE_BONUS} Def. Fís. ·{' '}
+                      {ARCANE_ARMOR_DURATION_ROUNDS}R
                     </span>
                   </div>
                   <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
-                    Uso exclusivo em você: concede{' '}
+                    Uso exclusivo em você: reveste o mago com placas de mana e concede{' '}
                     <span className="font-mono tabular-nums text-[#bae6fd] font-semibold">
-                      {arcaneShieldVal} pontos de Sobrevida
+                      +{ARCANE_ARMOR_PHYSICAL_DEFENSE_BONUS} de Defesa Física
                     </span>{' '}
-                    (5 + Inteligência) até ser quebrado.
+                    durante{' '}
+                    <span className="font-mono tabular-nums text-[#f2dfb9]">
+                      {ARCANE_ARMOR_DURATION_ROUNDS} rodadas
+                    </span>
+                    .
                   </p>
                 </div>
 
@@ -453,9 +838,9 @@ export function CharacterSheet({
                   <p className="text-xs text-[#b5a38d] mt-1 leading-relaxed">
                     Cone flamejante de 6 metros a partir de você, causando{' '}
                     <span className="font-mono tabular-nums text-[#fed7aa] font-semibold">
-                      12 de dano de fogo
+                      {fireBreathDmg} de dano de fogo
                     </span>{' '}
-                    na área.
+                    (12 + Dano Mágico) na área.
                   </p>
                 </div>
               </>

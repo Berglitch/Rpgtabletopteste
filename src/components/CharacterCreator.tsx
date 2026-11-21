@@ -6,6 +6,7 @@ import {
   Crown,
   Droplet,
   Eye,
+  EyeOff,
   Flame,
   Heart,
   Leaf,
@@ -15,6 +16,7 @@ import {
   ScrollText,
   Shield,
   Sparkles,
+  Sun,
   Sword,
   Swords,
   Target,
@@ -24,25 +26,63 @@ import {
 } from 'lucide-react';
 import {
   APPEARANCE_OPTIONS,
+  ARCANE_ARMOR_DURATION_ROUNDS,
+  ARCANE_ARMOR_MP_COST,
+  ARCANE_ARMOR_PHYSICAL_DEFENSE_BONUS,
   ATTRIBUTE_LIST,
   CLASS_LIST,
+  CONSECRATION_CAST_RANGE_METERS,
+  CONSECRATION_HEAL,
+  CONSECRATION_MP_COST,
+  CONSECRATION_RADIUS_METERS,
+  DAGGER_THROW_BLEED_DAMAGE,
+  DAGGER_THROW_BLEED_ROUNDS,
+  DAGGER_THROW_BONUS_DAMAGE,
+  DAGGER_THROW_EP_COST,
+  DAGGER_THROW_RANGE_METERS,
+  GALLANT_CHARGE_BONUS_DAMAGE,
+  GALLANT_CHARGE_EP_COST,
+  GALLANT_CHARGE_RANGE_METERS,
   HIGH_ELF_MP_PER_LEVEL,
   INITIAL_POINTS,
+  KNIGHT_TAUNT_DEFENSE_BONUS,
+  KNIGHT_TAUNT_EP_COST,
+  LETHALITY_CRIT_CHANCE,
+  LETHALITY_EP_COST,
+  LETHALITY_STEALTH_CRIT_DMG_BONUS,
+  PRIEST_BASIC_EP_COST,
+  PRIEST_BASIC_RANGE_METERS,
   RACE_LIST,
+  RAISE_GUARD_EP_COST,
+  RAISE_GUARD_PHYSICAL_DEFENSE_BONUS,
+  RESTORING_LIGHT_BASE_HEAL,
+  RESTORING_LIGHT_MP_COST,
+  SACRED_PROTECTION_MP_COST,
+  SACRED_PROTECTION_SHIELD_HP,
+  SPRINT_EP_COST,
+  STEALTH_BONUS_DAMAGE,
+  STEALTH_DETECTION_CHANCE,
+  STEALTH_DURATION_ROUNDS,
+  STEALTH_EP_COST,
+  STEALTH_EXTRA_DAMAGE_TAKEN,
   getAppearanceOption,
   getArcaneBoltDamage,
-  getArcaneShieldAmount,
+  getArcaneBoltUpgradedDamage,
   getCharacterPortraitUrl,
   getClassDefinition,
   getDwarfDefenseBonus,
+  getFireBreathDamage,
   getGenderLabel,
   getHighElfLevelMpBonus,
   getMageBasicAttackRange,
   getMaxEp,
   getMaxHp,
   getMaxMp,
+  getPriestBasicAttackRange,
   getRaceDefinition,
+  getScaledHealAmount,
   getSecondaryStats,
+  getWeaponDamageRange,
 } from '../game/engine';
 import type {
   AttributeKey,
@@ -86,7 +126,10 @@ const RACE_ICONS: Record<RaceId, typeof Flame> = {
 
 const CLASS_ICONS: Record<ClassId, typeof Swords> = {
   warrior: Swords,
+  knight: Shield,
+  rogue: EyeOff,
   mage: Wand2,
+  priest: Sun,
 };
 
 export function CharacterCreator({
@@ -120,12 +163,39 @@ export function CharacterCreator({
 
   const mageBasicRange = getMageBasicAttackRange(character);
   const arcaneBoltDmg = getArcaneBoltDamage(character);
-  const arcaneShieldVal = getArcaneShieldAmount(character);
+  const arcaneBoltUpgradedDmg = getArcaneBoltUpgradedDamage(character);
+  const fireBreathDmg = getFireBreathDamage(character);
+  const gallantChargeRange = getWeaponDamageRange(character, GALLANT_CHARGE_BONUS_DAMAGE);
+  const daggerThrowRange = getWeaponDamageRange(character, DAGGER_THROW_BONUS_DAMAGE);
+  const lethalityRange = getWeaponDamageRange(character, character.attributes.dexterity);
+  const priestBasicRange = getPriestBasicAttackRange(character);
+  const priestRestoringHeal = getScaledHealAmount(RESTORING_LIGHT_BASE_HEAL, character);
+  const priestConsecrationHeal = getScaledHealAmount(CONSECRATION_HEAL, character);
 
   const dmgText =
     secondary.physicalDamage.min === secondary.physicalDamage.max
       ? `${secondary.physicalDamage.min}`
       : `${secondary.physicalDamage.min}–${secondary.physicalDamage.max}`;
+
+  const gallantChargeText =
+    gallantChargeRange.min === gallantChargeRange.max
+      ? `${gallantChargeRange.min}`
+      : `${gallantChargeRange.min}–${gallantChargeRange.max}`;
+
+  const daggerThrowText =
+    daggerThrowRange.min === daggerThrowRange.max
+      ? `${daggerThrowRange.min}`
+      : `${daggerThrowRange.min}–${daggerThrowRange.max}`;
+
+  const lethalityText =
+    lethalityRange.min === lethalityRange.max
+      ? `${lethalityRange.min}`
+      : `${lethalityRange.min}–${lethalityRange.max}`;
+
+  const priestBasicText =
+    priestBasicRange.min === priestBasicRange.max
+      ? `${priestBasicRange.min}`
+      : `${priestBasicRange.min}–${priestBasicRange.max}`;
 
   const mageBasicText =
     mageBasicRange.min === mageBasicRange.max
@@ -582,6 +652,12 @@ export function CharacterCreator({
                         isSelected
                           ? cls.id === 'mage'
                             ? 'bg-gradient-to-r from-[#132538] to-[#1a1624] border-[#6bb4dc] shadow-md shadow-black/50'
+                            : cls.id === 'knight'
+                            ? 'bg-gradient-to-r from-[#2c2516] to-[#1c1914] border-[#f3d189] shadow-md shadow-black/50'
+                            : cls.id === 'priest'
+                            ? 'bg-gradient-to-r from-[#362d16] to-[#1f1c14] border-[#fef08a] shadow-md shadow-black/50'
+                            : cls.id === 'rogue'
+                            ? 'bg-gradient-to-r from-[#28162d] to-[#17121c] border-[#c084fc] shadow-md shadow-black/50'
                             : 'bg-gradient-to-r from-[#342311] to-[#21170e] border-[#e5b865] shadow-md shadow-black/50'
                           : 'bg-[#120d09] border-[#423120] hover:border-[#8f6a38] hover:bg-[#1c140e]'
                       }`}
@@ -591,6 +667,12 @@ export function CharacterCreator({
                           isSelected
                             ? cls.id === 'mage'
                               ? 'bg-[#173652] border-[#6bb4dc] text-[#bae6fd]'
+                              : cls.id === 'knight'
+                              ? 'bg-[#3d3118] border-[#f3d189] text-[#fef08a]'
+                              : cls.id === 'priest'
+                              ? 'bg-[#463a17] border-[#fef08a] text-[#fffbeb]'
+                              : cls.id === 'rogue'
+                              ? 'bg-[#361b40] border-[#c084fc] text-[#e9d5ff]'
                               : 'bg-[#422b12] border-[#e5b865] text-[#fde68a]'
                             : 'bg-[#1b140e] border-[#4d3924] text-[#a6957e]'
                         }`}
@@ -610,6 +692,12 @@ export function CharacterCreator({
                           className={`w-5 h-5 rounded-xs flex items-center justify-center shrink-0 ${
                             cls.id === 'mage'
                               ? 'bg-[#38bdf8] text-[#082f49]'
+                              : cls.id === 'knight'
+                              ? 'bg-[#f3d189] text-[#1a1207]'
+                              : cls.id === 'priest'
+                              ? 'bg-[#fef08a] text-[#1f1606]'
+                              : cls.id === 'rogue'
+                              ? 'bg-[#c084fc] text-[#1f0c2e]'
                               : 'bg-[#c9943b] text-[#181008]'
                           }`}
                         >
@@ -843,7 +931,137 @@ export function CharacterCreator({
                 {secondary.hitChance}%
               </span>
             </div>
+
+            <div className="col-span-2 bg-[#120d09] border border-[#3d2e1e] rounded-sm px-3 py-2 flex items-center justify-between gap-2">
+              <span className="text-[#a6957e] flex items-center gap-1.5">
+                <Heart className="w-3.5 h-3.5 text-[#34d399]" />
+                Bônus de Cura (+1/3 Sab.)
+              </span>
+              <span className="font-mono tabular-nums font-bold text-[#6ee7b7]">
+                +{secondary.healingBonus}
+              </span>
+            </div>
           </div>
+
+          {/* Knight Live Skill Preview */}
+          {character.classId === 'knight' && (
+            <div className="pt-3 border-t border-[#473421] space-y-2">
+              <div className="text-[11px] font-serif font-bold uppercase tracking-wider text-[#f3d189]">
+                Doutrina de Vanguarda (Cavaleiro)
+              </div>
+              <div className="space-y-1.5 text-xs font-mono tabular-nums">
+                <div className="flex items-center justify-between bg-[#110c09] border border-[#5c4327] rounded-xs px-3 py-1.5">
+                  <span className="text-[#d6c7b2]">Provocar ({KNIGHT_TAUNT_EP_COST} EP · 6m · 2R)</span>
+                  <span className="text-[#f3d189] font-bold">
+                    +{KNIGHT_TAUNT_DEFENSE_BONUS} Def. Fís./Mág.
+                  </span>
+                </div>
+                <div className="flex items-center justify-between bg-[#110c09] border border-[#5c4327] rounded-xs px-3 py-1.5">
+                  <span className="text-[#d6c7b2]">
+                    Levantar Guarda ({RAISE_GUARD_EP_COST} EP · Reação)
+                  </span>
+                  <span className="text-[#fde68a] font-bold">
+                    +{RAISE_GUARD_PHYSICAL_DEFENSE_BONUS} Def. Física
+                  </span>
+                </div>
+                <div className="flex items-center justify-between bg-[#110c09] border border-[#5c4327] rounded-xs px-3 py-1.5">
+                  <span className="text-[#d6c7b2]">
+                    Investida Galante ({GALLANT_CHARGE_EP_COST} EP · {GALLANT_CHARGE_RANGE_METERS}m)
+                  </span>
+                  <span className="text-[#fbbf24] font-bold">
+                    {gallantChargeText} dano (+{GALLANT_CHARGE_BONUS_DAMAGE})
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Priest Live Divine Skills Preview */}
+          {character.classId === 'priest' && (
+            <div className="pt-3 border-t border-[#473421] space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[11px] font-serif font-bold uppercase tracking-wider text-[#fef08a]">
+                  Bênçãos Sagradas (Sacerdote)
+                </div>
+                {secondary.healingBonus > 0 && (
+                  <span className="text-[10px] font-mono tabular-nums text-[#6ee7b7]">
+                    +{secondary.healingBonus} Cura (Sab.)
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1.5 text-xs font-mono tabular-nums">
+                <div className="flex items-center justify-between bg-[#110c09] border border-[#5c4b22] rounded-xs px-3 py-1.5">
+                  <span className="text-[#d6c7b2]">
+                    Raio Divino ({PRIEST_BASIC_EP_COST} EP · {PRIEST_BASIC_RANGE_METERS}m)
+                  </span>
+                  <span className="text-[#fef08a] font-bold">{priestBasicText} mágico</span>
+                </div>
+                <div className="flex items-center justify-between bg-[#110c09] border border-[#2d5a42] rounded-xs px-3 py-1.5">
+                  <span className="text-[#d6c7b2]">
+                    Luz Restauradora ({RESTORING_LIGHT_MP_COST} MP)
+                  </span>
+                  <span className="text-[#6ee7b7] font-bold">
+                    +{priestRestoringHeal} HP (+2/+3 MP)
+                  </span>
+                </div>
+                <div className="flex items-center justify-between bg-[#110c09] border border-[#5c4b22] rounded-xs px-3 py-1.5">
+                  <span className="text-[#d6c7b2]">
+                    Consagração ({CONSECRATION_MP_COST} MP · {CONSECRATION_CAST_RANGE_METERS}m / r
+                    {CONSECRATION_RADIUS_METERS}m)
+                  </span>
+                  <span className="text-[#fde68a] font-bold">+{priestConsecrationHeal} HP área</span>
+                </div>
+                <div className="flex items-center justify-between bg-[#110c09] border border-[#6e5c2b] rounded-xs px-3 py-1.5">
+                  <span className="text-[#d6c7b2]">
+                    Proteção Sagrada ({SACRED_PROTECTION_MP_COST} MP · 1R)
+                  </span>
+                  <span className="text-[#fffbeb] font-bold">
+                    +{SACRED_PROTECTION_SHIELD_HP} Escudo
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Rogue Live Skills Preview */}
+          {character.classId === 'rogue' && (
+            <div className="pt-3 border-t border-[#473421] space-y-2">
+              <div className="text-[11px] font-serif font-bold uppercase tracking-wider text-[#d8b4fe]">
+                Táticas das Sombras (Ladino)
+              </div>
+              <div className="space-y-1.5 text-xs font-mono tabular-nums">
+                <div className="flex items-center justify-between bg-[#110c09] border border-[#5c2529] rounded-xs px-3 py-1.5">
+                  <span className="text-[#d6c7b2]">
+                    Arremesso de Adaga ({DAGGER_THROW_EP_COST} EP · {DAGGER_THROW_RANGE_METERS}m)
+                  </span>
+                  <span className="text-[#fca5a5] font-bold">
+                    {daggerThrowText} (+{DAGGER_THROW_BONUS_DAMAGE}) + {DAGGER_THROW_BLEED_DAMAGE}×
+                    {DAGGER_THROW_BLEED_ROUNDS}R
+                  </span>
+                </div>
+                <div className="flex items-center justify-between bg-[#110c09] border border-[#4c2866] rounded-xs px-3 py-1.5">
+                  <span className="text-[#d6c7b2]">
+                    Furtividade ({STEALTH_EP_COST} EP · {STEALTH_DURATION_ROUNDS}R · {STEALTH_DETECTION_CHANCE}% Percep.)
+                  </span>
+                  <span className="text-[#d8b4fe] font-bold">
+                    +{STEALTH_BONUS_DAMAGE} dano / +{STEALTH_EXTRA_DAMAGE_TAKEN} rec.
+                  </span>
+                </div>
+                <div className="flex items-center justify-between bg-[#110c09] border border-[#1f4d3b] rounded-xs px-3 py-1.5">
+                  <span className="text-[#d6c7b2]">Disparada ({SPRINT_EP_COST} EP)</span>
+                  <span className="text-[#6ee7b7] font-bold">2× Deslocamento (12m)</span>
+                </div>
+                <div className="flex items-center justify-between bg-[#110c09] border border-[#6b213a] rounded-xs px-3 py-1.5">
+                  <span className="text-[#d6c7b2]">
+                    Letalidade ({LETHALITY_EP_COST} EP · Costas)
+                  </span>
+                  <span className="text-[#fda4af] font-bold">
+                    {lethalityText} (+Des) · {LETHALITY_CRIT_CHANCE}% Crít.
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Mage Live Spell Numbers Preview */}
           {character.classId === 'mage' && (
@@ -858,15 +1076,21 @@ export function CharacterCreator({
                 </div>
                 <div className="flex items-center justify-between bg-[#110c09] border border-[#2a3b4d] rounded-xs px-3 py-1.5">
                   <span className="text-[#d6c7b2]">Seta Arcana (3/5 MP · 9m)</span>
-                  <span className="text-[#84c4e6] font-bold">{arcaneBoltDmg} / seta</span>
+                  <span className="text-[#84c4e6] font-bold">
+                    {arcaneBoltDmg} (1×) / 2×{arcaneBoltUpgradedDmg}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between bg-[#110c09] border border-[#2a3b4d] rounded-xs px-3 py-1.5">
-                  <span className="text-[#d6c7b2]">Escudo Arcano (5 MP)</span>
-                  <span className="text-[#7dd3fc] font-bold">{arcaneShieldVal} Sobrevida</span>
+                  <span className="text-[#d6c7b2]">
+                    Armadura Arcana ({ARCANE_ARMOR_MP_COST} MP · {ARCANE_ARMOR_DURATION_ROUNDS}R)
+                  </span>
+                  <span className="text-[#7dd3fc] font-bold">
+                    +{ARCANE_ARMOR_PHYSICAL_DEFENSE_BONUS} Def. Física
+                  </span>
                 </div>
                 <div className="flex items-center justify-between bg-[#110c09] border border-[#4d281c] rounded-xs px-3 py-1.5">
                   <span className="text-[#d6c7b2]">Baforada de Fogo (9 MP · 6m)</span>
-                  <span className="text-[#fb923c] font-bold">12 dano fogo</span>
+                  <span className="text-[#fb923c] font-bold">{fireBreathDmg} dano fogo</span>
                 </div>
               </div>
             </div>

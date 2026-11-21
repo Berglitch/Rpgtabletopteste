@@ -277,14 +277,14 @@ export default function App() {
 
                 <div>
                   <h2 className="font-serif text-base font-bold text-[#e5b865] tracking-wide">
-                    Ação Padrão: Guerreiro &amp; Mago
+                    Ação Padrão: Classes em Combate
                   </h2>
                   <p className="text-sm text-[#b39d82] mt-2 leading-relaxed">
-                    <strong className="text-[#ede3d2]">Guerreiros</strong> usam Golpe Simples, Golpe Duplo e
-                    Provocar I com Energia. <strong className="text-[#ede3d2]">Magos</strong> canalizam Mana com{' '}
-                    <strong className="text-[#bae6fd]">Seta Arcana</strong> (9m),{' '}
-                    <strong className="text-[#bae6fd]">Escudo Arcano</strong> (Sobrevida) e{' '}
-                    <strong className="text-[#fed7aa]">Baforada de Fogo</strong> (Cone 6m).
+                    <strong className="text-[#ede3d2]">Guerreiros</strong> usam Golpe Duplo, Carrasco (+5/+7 dano) e reagem com Contra-Ataque.{' '}
+                    <strong className="text-[#fde68a]">Cavaleiros</strong> investem com Investida Galante (9m, +5 Ataque Fís.),
+                    Provocar (+3 Def. Fís./Mág.) e reagem com Levantar Guarda.{' '}
+                    <strong className="text-[#bae6fd]">Magos</strong> canalizam Seta Arcana, Armadura Arcana e Baforada de Fogo.{' '}
+                    <strong className="text-[#fffbeb]">Sacerdotes</strong> disparam Raio Divino e abençoam com Luz Restauradora, Consagração e Proteção Sagrada.
                   </p>
                 </div>
 

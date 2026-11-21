@@ -10,7 +10,11 @@ export type DamageType = 'physical' | 'magical';
 
 export type RaceId = 'human' | 'high_elf' | 'dwarf' | 'dryad';
 
-export type ClassId = 'warrior' | 'mage';
+export type ClassId = 'warrior' | 'mage' | 'knight' | 'priest' | 'rogue';
+
+export type EnemyFacing = 'left' | 'right' | 'up' | 'down';
+
+export type EnemyId = 'goblin' | 'slime_mother';
 
 export type GenderId = 'male' | 'female';
 
@@ -85,6 +89,7 @@ export interface SecondaryStats {
   magicDamage: number;
   physicalDefense: number;
   magicDefense: number;
+  healingBonus: number;
   critChance: number;
   critDamageBonus: number;
   evasionChance: number;
@@ -94,6 +99,8 @@ export interface SecondaryStats {
 export interface CombatStatModifiers {
   bonusPhysicalDamage?: number;
   bonusMagicDamage?: number;
+  bonusPhysicalDefense?: number;
+  bonusMagicDefense?: number;
   isDwarfLowHp?: boolean;
 }
 
@@ -166,13 +173,20 @@ export interface ReachableCell {
 }
 
 export interface PendingAttack {
+  attackerId?: 'primary' | string;
   attackerName: string;
   attackName: string;
   damageType: DamageType;
   baseDamage: number;
   incomingDamage: number;
+  secondaryMagicDamage?: number;
   isCritical: boolean;
   isHeavyBlow: boolean;
+  isTankBuster?: boolean;
+  isLeapSlam?: boolean;
+  poisonChance?: number;
+  poisonDamagePct?: number;
+  poisonRounds?: number;
   isOpportunityAttack?: boolean;
   resumeMoveAfter?: {
     x: number;
@@ -195,6 +209,68 @@ export interface EnemyHeavyBlowSkill {
   cooldown: number;
 }
 
+export interface EnemyTankBusterSkill {
+  id: string;
+  name: string;
+  damagePctOfTargetMaxHp: number;
+  chargeRounds: number;
+  cooldown: number;
+  chaseMoveMultiplier: number;
+}
+
+export interface EnemyLeapSlamSkill {
+  id: string;
+  name: string;
+  leapRangeMeters: number;
+  aoeRadiusMeters: number;
+  physicalDamage: number;
+  magicDamage: number;
+  poisonChance: number;
+  cooldown: number;
+}
+
+export interface CombatMinion {
+  instanceId: string;
+  name: string;
+  portraitUrl: string;
+  hp: number;
+  maxHp: number;
+  mp: number;
+  maxMp: number;
+  ep: number;
+  maxEp: number;
+  moveMeters: number;
+  attributes: CharacterAttributes;
+  dmg: number;
+  magicDamage: number;
+  physicalDefense: number;
+  magicDefense: number;
+  critChance: number;
+  critDamageBonus: number;
+  evasionChance: number;
+  hitChance: number;
+  attackName: string;
+  poisonChance: number;
+  poisonDamagePct: number;
+  poisonRounds: number;
+  spitName: string;
+  spitMpCost: number;
+  spitRangeCells: number;
+  spitDamage: number;
+  spitPoisonChance: number;
+  spitCooldown: number;
+  spitCooldownMax: number;
+  x: number;
+  y: number;
+  facing: EnemyFacing;
+  stunnedTurns: number;
+  tauntedTurns: number;
+  tauntedBy: string | null;
+  tauntedDefenseBonus: number;
+  bleedTurns: number;
+  bleedDamagePerTurn: number;
+}
+
 export interface CombatPlayer {
   hp: number;
   maxHp: number;
@@ -202,8 +278,13 @@ export interface CombatPlayer {
   maxMp: number;
   ep: number;
   maxEp: number;
-  arcaneShield: number;
-  arcaneShieldMax: number;
+  arcaneArmorTurns: number;
+  sacredShieldHp: number;
+  sacredShieldTurns: number;
+  regenerationTurns: number;
+  regenerationHealPerTurn: number;
+  poisonTurns: number;
+  poisonDamagePerTurn: number;
   x: number;
   y: number;
   initiative: number;
@@ -216,14 +297,26 @@ export interface CombatPlayer {
   greenBloodTriggered: boolean;
   greenBloodTurns: number;
   rigidSkinDoubledLogged: boolean;
+  stealthTurns: number;
+  sprintActiveThisTurn: boolean;
 }
 
 export interface CombatEnemy {
+  id: EnemyId;
   name: string;
+  title?: string;
+  isBoss: boolean;
+  sizeCells: number;
+  portraitUrl: string;
   hp: number;
   maxHp: number;
+  mp: number;
+  maxMp: number;
   ep: number;
   maxEp: number;
+  moveMeters: number;
+  trueSight: boolean;
+  attributes: CharacterAttributes;
   dmg: number;
   magicDamage: number;
   physicalDefense: number;
@@ -233,9 +326,22 @@ export interface CombatEnemy {
   evasionChance: number;
   hitChance: number;
   attackName: string;
+  poisonChance: number;
+  poisonDamagePct: number;
+  poisonRounds: number;
   heavyBlowCooldown: number;
+  tankBusterCooldown: number;
+  tankBusterCharging: boolean;
+  tankBusterTarget: 'player' | null;
+  tankBusterTargetStartPos: GridPos | null;
+  tankBusterStartDist: number;
+  leapSlamCooldown: number;
+  summonChance: number;
+  maxMinions: number;
   skills: {
-    heavyBlow: EnemyHeavyBlowSkill;
+    heavyBlow?: EnemyHeavyBlowSkill;
+    tankBuster?: EnemyTankBusterSkill;
+    leapSlam?: EnemyLeapSlamSkill;
   };
   dexterity: number;
   x: number;
@@ -245,12 +351,17 @@ export interface CombatEnemy {
   stunnedTurns: number;
   tauntedTurns: number;
   tauntedBy: string | null;
+  tauntedDefenseBonus: number;
+  facing: EnemyFacing;
+  bleedTurns: number;
+  bleedDamagePerTurn: number;
 }
 
 export type CombatTone = 'info' | 'player' | 'enemy' | 'reaction' | 'warning' | 'victory' | 'defeat';
 
 export interface CombatLogEntry {
   id: number;
+  round?: number;
   tone: CombatTone;
   tag?: string;
   text: string;
@@ -262,10 +373,15 @@ export type CombatOutcome = 'ongoing' | 'victory' | 'defeat';
 export interface CombatState {
   player: CombatPlayer;
   enemy: CombatEnemy;
+  minions: CombatMinion[];
+  selectedTargetId: 'primary' | string;
+  pendingMinionTurns: string[];
   isActive: boolean;
   outcome: CombatOutcome;
   isMoveModeActive: boolean;
   isFireBreathModeActive: boolean;
+  isGallantChargeModeActive: boolean;
+  isConsecrationModeActive: boolean;
   isAnimatingMove: boolean;
   awaitingReaction: boolean;
   pendingAttack: PendingAttack | null;
